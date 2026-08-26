@@ -97,3 +97,14 @@ CREATE TABLE tasks (
     FOREIGN KEY (deleted_by)   REFERENCES users(id),
     FOREIGN KEY (comments_id)  REFERENCES comments(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- TASKS_GROUPS (n:m )
+-- ============================================
+CREATE TABLE tasks_groups (
+    id        INT AUTO_INCREMENT PRIMARY KEY,
+    groups_id INT NOT NULL,
+    task_id   INT NOT NULL,
+    FOREIGN KEY (groups_id) REFERENCES groups(id),
+    FOREIGN KEY (task_id)   REFERENCES tasks(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
