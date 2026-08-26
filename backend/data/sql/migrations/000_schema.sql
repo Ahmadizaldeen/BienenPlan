@@ -54,3 +54,20 @@ CREATE TABLE projects (
     FOREIGN KEY (created_by)  REFERENCES users(id),
     FOREIGN KEY (archived_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- CONTAINERS
+-- Archivierung durch erbung von Projekten.
+-- ============================================
+CREATE TABLE containers (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    title      VARCHAR(100) NOT NULL,
+    project_id INT NOT NULL,
+    created_by INT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL, -- soft delete für das MVP. -- ermöglicht das entfernen von Containern.
+    deleted_by INT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    FOREIGN KEY (deleted_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
