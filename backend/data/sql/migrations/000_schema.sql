@@ -39,3 +39,18 @@ CREATE TABLE users_groups (
     FOREIGN KEY (user_id)   REFERENCES users(id),
     FOREIGN KEY (groups_id) REFERENCES groups(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- PROJECTS  
+-- ============================================
+CREATE TABLE projects (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(100) NOT NULL UNIQUE,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by  INT NOT NULL,
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    archived_at DATETIME NULL, -- soft delete für das MVP.
+    archived_by INT NULL,
+    FOREIGN KEY (created_by)  REFERENCES users(id),
+    FOREIGN KEY (archived_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
