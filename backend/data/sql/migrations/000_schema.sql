@@ -17,3 +17,25 @@ CREATE TABLE users (
 -- Später: personenbezogene Daten nach definiertem Lösch-/Anonymisierungskonzept
 -- gemäß DSGVO verarbeiten und, soweit rechtlich zulässig, anonymisieren.
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- GROUPS
+-- jeder User hat seine einge- oder mehrere Gruppen
+-- ============================================
+CREATE TABLE groups (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(255) NOT NULL UNIQUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- USERS_GROUPS (n:m relationship)
+-- Ein Benutzer angehört zu m Gruppen, Gruppen etweder 1 oder n Benutzen
+-- ============================================
+CREATE TABLE users_groups (
+    id        INT AUTO_INCREMENT PRIMARY KEY,
+    user_id   INT NOT NULL,
+    groups_id INT NOT NULL,
+    FOREIGN KEY (user_id)   REFERENCES users(id),
+    FOREIGN KEY (groups_id) REFERENCES groups(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
