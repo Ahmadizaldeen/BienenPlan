@@ -88,6 +88,7 @@ CREATE TABLE tasks (
     created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deadline     DATETIME NULL,
+    attachment VARCHAR(255) NULL, -- URL zu Datei
     comments_id  INT NULL -- FK zu comments 1:n
     deleted_at   DATETIME NULL, -- soft delete
     deleted_by   INT NULL,
@@ -107,4 +108,15 @@ CREATE TABLE tasks_groups (
     task_id   INT NOT NULL,
     FOREIGN KEY (groups_id) REFERENCES groups(id),
     FOREIGN KEY (task_id)   REFERENCES tasks(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- SUBTASKS
+-- ============================================
+CREATE TABLE subtasks (
+    id        INT AUTO_INCREMENT PRIMARY KEY,
+    task_id   INT NOT NULL,
+    title     VARCHAR(100) NOT NULL,
+    completed BOOLEAN NOT NULL DEFAULT FALSE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
