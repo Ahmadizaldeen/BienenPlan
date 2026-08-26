@@ -71,3 +71,29 @@ CREATE TABLE containers (
     FOREIGN KEY (created_by) REFERENCES users(id),
     FOREIGN KEY (deleted_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- TASKS
+-- Archivierung durch erbung von Projekten.
+-- soft delete für UI,UX
+-- ============================================
+CREATE TABLE tasks (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    container_id INT NOT NULL,
+    created_by   INT NOT NULL,
+    assigned_to  INT NULL,
+    title        VARCHAR(255) NOT NULL,
+    description  TEXT NULL,
+    status       ENUM('open', 'in_progress', 'done', 'timed_out') NOT NULL DEFAULT 'open',
+    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deadline     DATETIME NULL,
+    comments_id  INT NULL -- FK zu comments 1:n
+    deleted_at   DATETIME NULL, -- soft delete
+    deleted_by   INT NULL,
+    FOREIGN KEY (container_id) REFERENCES containers(id),
+    FOREIGN KEY (created_by)   REFERENCES users(id),
+    FOREIGN KEY (assigned_to)  REFERENCES users(id),
+    FOREIGN KEY (deleted_by)   REFERENCES users(id),
+    FOREIGN KEY (comments_id)  REFERENCES comments(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
