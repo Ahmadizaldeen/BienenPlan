@@ -1,4 +1,4 @@
--- DROP DATABASE IF EXISTS `bienenplan`; -- FÜR ENTWICKLUNGSPHASE
+DROP DATABASE IF EXISTS `bienenplan`; -- FÜR ENTWICKLUNGSPHASE
 CREATE DATABASE IF NOT EXISTS `bienenplan`;
 USE `bienenplan`;
 
@@ -36,6 +36,7 @@ CREATE TABLE users_groups (
     id        INT AUTO_INCREMENT PRIMARY KEY,
     user_id   INT NOT NULL,
     groups_id INT NOT NULL,
+    UNIQUE (user_id, groups_id), -- Verhindert doppelte Einträge für die gleiche Benutzer-Gruppe-Kombination
     FOREIGN KEY (user_id)   REFERENCES users(id),
     FOREIGN KEY (groups_id) REFERENCES groups(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -81,7 +82,6 @@ CREATE TABLE tasks (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     container_id INT NOT NULL,
     created_by   INT NOT NULL,
-    assigned_to  INT NULL,
     title        VARCHAR(255) NOT NULL,
     description  TEXT NULL,
     status       ENUM('open', 'in_progress', 'done', 'timed_out') NOT NULL DEFAULT 'open',
@@ -89,14 +89,11 @@ CREATE TABLE tasks (
     updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deadline     DATETIME NULL,
     attachment VARCHAR(255) NULL, -- URL zu Datei
-    comments_id  INT NULL -- FK zu comments 1:n
     deleted_at   DATETIME NULL, -- soft delete
     deleted_by   INT NULL,
     FOREIGN KEY (container_id) REFERENCES containers(id),
     FOREIGN KEY (created_by)   REFERENCES users(id),
-    FOREIGN KEY (assigned_to)  REFERENCES users(id),
-    FOREIGN KEY (deleted_by)   REFERENCES users(id),
-    FOREIGN KEY (comments_id)  REFERENCES comments(id)
+    FOREIGN KEY (deleted_by)   REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
@@ -106,6 +103,7 @@ CREATE TABLE tasks_groups (
     id        INT AUTO_INCREMENT PRIMARY KEY,
     groups_id INT NOT NULL,
     task_id   INT NOT NULL,
+    UNIQUE (groups_id, task_id), -- Verhindert doppelte Einträge für die gleiche Gruppe-Task-Kombination
     FOREIGN KEY (groups_id) REFERENCES groups(id),
     FOREIGN KEY (task_id)   REFERENCES tasks(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -120,3 +118,15 @@ CREATE TABLE subtasks (
     completed BOOLEAN NOT NULL DEFAULT FALSE,
     FOREIGN KEY (task_id) REFERENCES tasks(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE comments (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    task_id    INT NOT NULL,
+    user_id    INT NOT NULL,
+    content    TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL, -- soft delete
+
+    FOREIGN KEY (task_id) REFERENCES tasks(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
