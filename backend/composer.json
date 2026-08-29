@@ -1,0 +1,11 @@
+{
+    "name": "bienenplan/backend",
+    "autoload": {
+        "psr-4": {
+            "BienenPlan\\Backend\\": "src/"
+        }
+    },
+    "require": {
+        "vlucas/phpdotenv": "^5.7"
+    }
+}
