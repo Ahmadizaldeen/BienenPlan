@@ -22,6 +22,18 @@ User
 - MySQL
 - Composer
 
+## 🚀 Setup (Backend)
+
+1. Abhängigkeiten installieren:
+   cd backend && composer install
+
+2. Umgebungsvariablen konfigurieren:
+   cp .env.example .env
+   # .env mit eigenen DB-Zugangsdaten befüllen
+
+3. Datenbankschema anlegen:
+   mysql -u root -p < data/sql/migrations/000_schema.sql
+
 ### Frontend
 - Flutter
 - Dart
