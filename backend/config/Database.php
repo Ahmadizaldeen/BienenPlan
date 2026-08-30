@@ -5,7 +5,15 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use Dotenv\Dotenv; # vlucas/phpdotenv package
 
 $dotenv = Dotenv::createImmutable(__DIR__ . '/..'); # load .env file
-$dotenv->load(); 
+try{
+    $dotenv->Load();
+}
+catch(Exception $e){
+    http_response_code(500);
+    echo json_encode(['error' => 'Fehler beim Laden der Umgebungsvariablen']);
+    exit;
+}
+
 
 class Database{
         private static ?PDO $instance = null;
