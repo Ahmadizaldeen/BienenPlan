@@ -1,21 +1,6 @@
 <?php
 
-require_once __DIR__ . '/../vendor/autoload.php';
-
-use Dotenv\Dotenv; # vlucas/phpdotenv package
-
-$dotenv = Dotenv::createImmutable(__DIR__ . '/..'); # load .env file
-try{
-    $dotenv->Load();
-}
-catch(Exception $e){
-    http_response_code(500);
-    echo json_encode(['error' => 'Fehler beim Laden der Umgebungsvariablen']);
-    exit;
-}
-
-
-class Database{
+abstract class Database{
         private static ?PDO $instance = null;
 
     public static function getConnection(): PDO { // singleton pattern
@@ -36,9 +21,7 @@ class Database{
             try {
                 self::$instance = new PDO($dsn, $user, $pass, $options);
             } catch (PDOException $e) {
-                http_response_code(500);
-                echo json_encode(['error' => 'Datenbankverbindung fehlgeschlagen']);
-                exit;
+                Response::json(['error' => 'Datenbankverbindung fehlgeschlagen: ' ], 500);
             }
         }
         return self::$instance;
