@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# Falls die App nicht im Root der Domain liegt, ggf. RewriteBase anpassen
+# RewriteBase /
+
+# Existierende Dateien/Ordner direkt ausliefern (z.B. später CSS/JS)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Alles andere zu index.php
+RewriteRule ^ index.php [L]
