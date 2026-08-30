@@ -1,2 +1,6 @@
 /docs
+*.dia~
+backend/vendor
+backend/.env
+tests/
 

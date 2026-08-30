@@ -3,6 +3,19 @@
 Eine plattformübergreifende Projekt-Management-Anwendung für das Verwatung von Aufgaben in Übergeordente Contienern.
 Benutzerverwaltung und authenirern und für Team mit gruppierung von Benutzen.
 
+Programm Hierarchie:
+
+User
+ │
+ ├── Groups
+ │
+ └── Projects
+       │
+       └── Containers
+             │
+             └── Tasks
+                   │
+                   └── Subtasks
 ### Backend
 - PHP
 - REST API
