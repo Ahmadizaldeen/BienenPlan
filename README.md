@@ -34,6 +34,12 @@ User
 3. Datenbankschema anlegen:
    mysql -u root -p < data/sql/migrations/000_schema.sql
 
+   oder mit GUI-Tool wie. PHPmyAdmin
+
+4. 4. Webserver konfigurieren:
+   DocumentRoot muss auf `backend/public` zeigen, damit `.env`, `vendor/` und `config/` nicht über HTTP erreichbar sind.
+   `mod_rewrite` muss aktiv sein . C:\xampp\apache\conf\httpd.conf -> LoadModule rewrite_module modules/mod_rewrite.so
+
 ### Frontend
 - Flutter
 - Dart
