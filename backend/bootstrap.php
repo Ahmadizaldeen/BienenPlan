@@ -1,4 +1,6 @@
 <?php
+# === load database connection ===#
+require_once __DIR__ . '/config/Database.php';
 # === load helper functions ===#
 require_once __DIR__ . '/helpers/Response.php';
 
