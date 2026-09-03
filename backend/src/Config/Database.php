@@ -1,5 +1,7 @@
 <?php
 
+namespace BienenPlan\Config;
+use PDO, PDOException;
 abstract class Database{
         private static ?PDO $instance = null;
 
@@ -21,7 +23,7 @@ abstract class Database{
             try {
                 self::$instance = new PDO($dsn, $user, $pass, $options);
             } catch (PDOException $e) {
-                Response::json(['error' => 'Datenbankverbindung fehlgeschlagen: ' ], 500);
+                throw new PDOException('Datenbankverbindung fehlgeschlagen: ' . $e->getMessage(), (int)$e->getCode());
             }
         }
         return self::$instance;
