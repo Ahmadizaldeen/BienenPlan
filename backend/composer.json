@@ -2,12 +2,13 @@
     "name": "bienenplan/backend",
     "autoload": {
         "psr-4": {
-            "BienenPlan\\Backend\\": "src/"
+            "BienenPlan\\": "src/"
         }
     },
     "require": {
         "vlucas/phpdotenv": "^5.7",
         "slim/slim": "^4.15",
-        "slim/psr7": "^1.8"
+        "slim/psr7": "^1.8",
+        "firebase/php-jwt": "^7.1"
     }
 }
