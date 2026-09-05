@@ -27,7 +27,6 @@ class JwtService {
             return JWT::decode($token, new Key($this->secret, 'HS256'));
         } catch (\Exception $e) {
             throw new \Exception('Ungültiges oder abgelaufenes Token: ' . $e->getMessage());
-            return null;
         }
     }
 }
