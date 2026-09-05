@@ -34,6 +34,15 @@ $app->setBasePath('/BienenPlan/backend/public');
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 
+// CORS-Middleware 
+$app->add(function ($request, $handler) {
+    $response = $handler->handle($request);
+    return $response
+        ->withHeader('Access-Control-Allow-Origin', '*')
+        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
+        ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+});
+
 // 5. Öffentliche Routen
 $app->post('/api/register', [$authController, 'register']);
 $app->post('/api/login', [$authController, 'login']);
@@ -51,6 +60,11 @@ $app->group('/api', function ($group) use ($taskController) {
 $app->get('/api/test', function ($request, $response) {
     $response->getBody()->write(json_encode(['status' => 'OK', 'message' => 'API läuft!']));
     return $response->withHeader('Content-Type', 'application/json');
+});
+
+// Preflight OPTIONS-Anfragen abfangen
+$app->options('/{routes:.+}', function ($request, $response) {
+    return $response;
 });
 
 $app->run();
