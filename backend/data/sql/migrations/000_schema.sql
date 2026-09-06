@@ -82,7 +82,7 @@ CREATE TABLE containers (
 CREATE TABLE tasks (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     container_id INT NOT NULL, -- Tasks exsisteren nur in einem Container 
-    created_by   INT NOT NULL,
+    created_by   INT NULL,
     title        VARCHAR(100) NOT NULL,
     description  TEXT NULL,
     status       ENUM('open', 'in_progress', 'done', 'timed_out') NOT NULL DEFAULT 'open',
