@@ -81,9 +81,9 @@ CREATE TABLE containers (
 -- ============================================
 CREATE TABLE tasks (
     id           INT AUTO_INCREMENT PRIMARY KEY,
-    container_id INT NOT NULL,
+    container_id INT NOT NULL, -- Tasks exsisteren nur in einem Container 
     created_by   INT NOT NULL,
-    title        VARCHAR(255) NOT NULL,
+    title        VARCHAR(100) NOT NULL,
     description  TEXT NULL,
     status       ENUM('open', 'in_progress', 'done', 'timed_out') NOT NULL DEFAULT 'open',
     created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -91,10 +91,10 @@ CREATE TABLE tasks (
     deadline     DATETIME NULL,
     attachment VARCHAR(255) NULL, -- URL zu Datei
     deleted_at   DATETIME NULL, -- soft delete
-    deleted_by   INT NULL,
-    FOREIGN KEY (container_id) REFERENCES containers(id),
-    FOREIGN KEY (created_by)   REFERENCES users(id),
-    FOREIGN KEY (deleted_by)   REFERENCES users(id)
+    done_by   INT NULL, -- statistische Auswertung.
+    FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE RESTRICT, -- Container nicht löschbar wenn noch Tasks existieren
+    FOREIGN KEY (created_by)   REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (done_by)   REFERENCES users(id) ON DELETE SET NULL -- task darf nicht gelöscht bei löschen eines Users
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
