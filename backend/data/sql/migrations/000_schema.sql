@@ -33,12 +33,13 @@ CREATE TABLE groups (
 -- Ein Benutzer angehört zu m Gruppen, Gruppen etweder 1 oder n Benutzen
 -- ============================================
 CREATE TABLE users_groups (
-    id        INT AUTO_INCREMENT PRIMARY KEY,
     user_id   INT NOT NULL,
     groups_id INT NOT NULL,
-    UNIQUE (user_id, groups_id), -- Verhindert doppelte Einträge für die gleiche Benutzer-Gruppe-Kombination
-    FOREIGN KEY (user_id)   REFERENCES users(id),
-    FOREIGN KEY (groups_id) REFERENCES groups(id)
+    PRIMARY KEY (user_id, groups_id), -- Benutzer-Gruppe-Kombination
+    role      ENUM('owner', 'admin', 'member') NOT NULL DEFAULT 'member',
+    assignment_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id)   REFERENCES users(id) ON DELETE CASCADE, -- beim Löschen ein User -> mitgliedschaften löschen
+    FOREIGN KEY (groups_id) REFERENCES groups(id) ON DELETE RESTRICT -- Gruppen mit Benutzern nicht löschen
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
