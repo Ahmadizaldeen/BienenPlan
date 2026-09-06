@@ -3,4 +3,5 @@
 backend/vendor
 backend/.env
 tests/
-
+backend/src/Services/Env.php
+backend/data/sql/seeds/seeds.sql
