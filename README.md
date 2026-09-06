@@ -25,7 +25,12 @@ User
 ## 🚀 Setup (Backend)
 
 1. Abhängigkeiten installieren:
-   cd backend && composer install
+cd backend
+   composer install
+   composer require vlucas/phpdotenv
+   composer require slim/slim
+   composer require slim/psr7
+   composer require firebase/php-jwt
 
 2. Umgebungsvariablen konfigurieren:
    cp .env.example .env
