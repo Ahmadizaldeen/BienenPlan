@@ -103,7 +103,7 @@ CREATE TABLE tasks (
 CREATE TABLE groups_tasks ( 
     group_id INT NOT NULL,
     task_id   INT NOT NULL,
-    (group_id, task_id) PRIMARY KEY, -- Verhindert doppelte Einträge für die gleiche Gruppe-Task-Kombination
+    PRIMARY KEY (group_id, task_id) , -- Verhindert doppelte Einträge für die gleiche Gruppe-Task-Kombination
     FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE, -- Gruppen-Zugehörigkeit zu Task Löschen.
     FOREIGN KEY (task_id)   REFERENCES tasks(id) ON DELETE CASCADE -- Task Löschen -> Gruppen Zugehörigkeit Löschen
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
