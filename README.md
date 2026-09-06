@@ -45,7 +45,7 @@ cd backend
    DocumentRoot muss auf `backend/public` zeigen, damit `.env`, `vendor/` und `config/` nicht über HTTP erreichbar sind.
    `mod_rewrite` muss aktiv sein . C:\xampp\apache\conf\httpd.conf -> LoadModule rewrite_module modules/mod_rewrite.so
 
-### Frontend
+### Frontend (wird in neue Repostorie erstellen)
 - Flutter
 - Dart
 
@@ -80,16 +80,6 @@ BienenPlan/
 │   │       └── diagrams/
 │   └── tests/
 │
-├── frontend/
-│   ├── lib/
-│   │   ├── models/
-│   │   ├── services/
-│   │   ├── screens/
-│   │   ├── widgets/
-│   │   └── utils/
-│   ├── assets/
-│   └── test/
-│
 ├── docs/
 ├── .gitignore
 └── README.md
@@ -101,5 +91,12 @@ MySQL wird als Datenbank verwendet.
 SQL-Dateien befinden sich unter:
 backend/data/sql/
 
+🌐 CORS (Entwicklungshinweis)
+
+Das Backend erlaubt aktuell Access-Control-Allow-Origin: * für die Entwicklungsphase. Vor einem Produktivbetrieb muss dies auf konkrete erlaubte Origins eingeschränkt werden.
+
+🔗 Frontend
+
+Flutter: https://github.com/Ahmadizaldeen/BienenPlan.git
 📌 Status
 🚧 In Entwicklung
