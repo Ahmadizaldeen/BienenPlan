@@ -24,7 +24,7 @@ CREATE TABLE users (
 -- ============================================
 CREATE TABLE groups (
     id         INT AUTO_INCREMENT PRIMARY KEY,
-    name       VARCHAR(255) NOT NULL UNIQUE,
+    name       VARCHAR(100) NOT NULL UNIQUE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -82,7 +82,7 @@ CREATE TABLE tasks (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     container_id INT NOT NULL,
     created_by   INT NOT NULL,
-    title        VARCHAR(255) NOT NULL,
+    title        VARCHAR(100) NOT NULL,
     description  TEXT NULL,
     status       ENUM('open', 'in_progress', 'done', 'timed_out') NOT NULL DEFAULT 'open',
     created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
