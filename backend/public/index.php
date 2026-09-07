@@ -58,7 +58,7 @@ $errorMiddleware->setErrorHandler(HttpNotFoundException::class, $notFoundHandler
 $app->post('/api/register', [$authController, 'register']);
 $app->post('/api/login', [$authController, 'login']);
 $app->get('/api', [$apiController, 'index']);
-
+$app->get('/', [$apiController, 'index']); # Setup Route
 // Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
 $app->group('/api', function ($group) use ($taskController) {
