@@ -1,11 +1,11 @@
 <?php
 namespace BienenPlan\Middleware;
 
-use Psr\Http\Message\ResponseInterface as Response; # Response Type (Interface)
-use Psr\Http\Message\ServerRequestInterface as Request;
-use Psr\Http\Server\RequestHandlerInterface as RequestHandler; # gibt Response zurück
-use BienenPlan\Services\JwtService;
+use Psr\Http\Message\ServerRequestInterface as Request; # Eingehende HTTP-Anfrage
 use Slim\Psr7\Response as SlimResponse; # Response erzeugen, bearbeiten und zurückgeben
+use BienenPlan\Services\JwtService; # JWT prüfen/erzeugen
+use Psr\Http\Message\ResponseInterface as Response; # Rückgabetyp einer HTTP-Antwort
+use Psr\Http\Server\RequestHandlerInterface as RequestHandler; # Server-Request-Handler
 
 class AuthMiddleware {
 
