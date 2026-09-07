@@ -2,8 +2,6 @@
 require_once __DIR__ .'/../bootstrap.php';
 
 
-require __DIR__ . '/../vendor/autoload.php';
-
 use Slim\Factory\AppFactory;
 use BienenPlan\Config\Database;
 use BienenPlan\Models\User;
@@ -14,23 +12,33 @@ use BienenPlan\Controllers\TaskController;
 use BienenPlan\Middleware\AuthMiddleware;
 use BienenPlan\Middleware\CorsMiddleware;
 use BienenPlan\Controllers\ApiController;
+use BienenPlan\Error\BootstrapErrorHandler;
+use Slim\Exception\HttpNotFoundException;
+use BienenPlan\Error\NotFoundHandler;
 
-// 1. Manuelle Instanziierung der Basis-Dienste
-$pdo = Database::getConnection();
-$jwtService = new JwtService();
+//bootstrapen und Exception Handlen
+try{
+    //Manuelle Instanziierung der Basis-Dienste
+    $pdo = Database::getConnection();
+    $jwtService = new JwtService();
 
-// 2. Manuelle Instanziierung der Models
-$userModel = new User($pdo);
-$taskModel = new Task($pdo);
+    //Manuelle Instanziierung der Models
+    $userModel = new User($pdo);
+    $taskModel = new Task($pdo);
 
-// 3. Manuelle Instanziierung der Controller & Middleware
-$authController = new AuthController($userModel, $jwtService);
-$taskController = new TaskController($taskModel);
-$authMiddleware = new AuthMiddleware($jwtService); 
-$corsMiddleware = new CorsMiddleware();
-$apiController = new ApiController();
+    //Manuelle Instanziierung der Controller & Middleware
+    $authController = new AuthController($userModel, $jwtService);
+    $taskController = new TaskController($taskModel);
+    $authMiddleware = new AuthMiddleware($jwtService); 
+    $corsMiddleware = new CorsMiddleware();
+    $apiController = new ApiController();
+    $notFoundHandler = new NotFoundHandler();
+}
+catch (Throwable $e){
+    BootstrapErrorHandler::handle($e);
+}
 
-// 4. Slim App erstellen
+// Slim App erstellen
 $app = AppFactory::create();
 $app->setBasePath('/BienenPlan/backend/public');
 
@@ -39,13 +47,19 @@ $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 $app->add($corsMiddleware);
 
-// 5. Öffentliche Routen
+$errorMiddleware = $app->addErrorMiddleware(
+    false, # Fehlerdetails anzeigen
+    true, #Fehler loggen
+    true # Details loggen
+);
+$errorMiddleware->setErrorHandler(HttpNotFoundException::class, $notFoundHandler);
+
+//  Öffentliche Routen
 $app->post('/api/register', [$authController, 'register']);
 $app->post('/api/login', [$authController, 'login']);
 $app->get('/api', [$apiController, 'index']);
 
-
-// 6. Geschützte Routen
+// Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
 $app->group('/api', function ($group) use ($taskController) {
     $group->get('/tasks', [$taskController, 'getAll']);
