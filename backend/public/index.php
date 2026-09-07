@@ -12,6 +12,7 @@ use BienenPlan\Services\JwtService;
 use BienenPlan\Controllers\AuthController;
 use BienenPlan\Controllers\TaskController;
 use BienenPlan\Middleware\AuthMiddleware;
+use BienenPlan\Middleware\CorsMiddleware;
 
 // 1. Manuelle Instanziierung der Basis-Dienste
 $pdo = Database::getConnection();
@@ -25,6 +26,7 @@ $taskModel = new Task($pdo);
 $authController = new AuthController($userModel, $jwtService);
 $taskController = new TaskController($taskModel);
 $authMiddleware = new AuthMiddleware($jwtService); 
+$corsMiddleware = new CorsMiddleware();
 
 // 4. Slim App erstellen
 $app = AppFactory::create();
@@ -33,19 +35,12 @@ $app->setBasePath('/BienenPlan/backend/public');
 // Middlewares hinzufügen (Reihenfolge ist wichtig!)
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
-
-// CORS-Middleware 
-$app->add(function ($request, $handler) {
-    $response = $handler->handle($request);
-    return $response
-        ->withHeader('Access-Control-Allow-Origin', '*')
-        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
-        ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-});
+$app->add($corsMiddleware);
 
 // 5. Öffentliche Routen
 $app->post('/api/register', [$authController, 'register']);
 $app->post('/api/login', [$authController, 'login']);
+
 
 // 6. Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
@@ -56,15 +51,5 @@ $app->group('/api', function ($group) use ($taskController) {
     $group->put('/tasks/{id}', [$taskController, 'update']);
     $group->delete('/tasks/{id}', [$taskController, 'delete']);
 })->add($authMiddleware);
-// Test-Route für den Browser
-$app->get('/api/test', function ($request, $response) {
-    $response->getBody()->write(json_encode(['status' => 'OK', 'message' => 'API läuft!']));
-    return $response->withHeader('Content-Type', 'application/json');
-});
-
-// Preflight OPTIONS-Anfragen abfangen
-$app->options('/{routes:.+}', function ($request, $response) {
-    return $response;
-});
 
 $app->run();
