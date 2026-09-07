@@ -13,6 +13,7 @@ use BienenPlan\Controllers\AuthController;
 use BienenPlan\Controllers\TaskController;
 use BienenPlan\Middleware\AuthMiddleware;
 use BienenPlan\Middleware\CorsMiddleware;
+use BienenPlan\Controllers\ApiController;
 
 // 1. Manuelle Instanziierung der Basis-Dienste
 $pdo = Database::getConnection();
@@ -27,6 +28,7 @@ $authController = new AuthController($userModel, $jwtService);
 $taskController = new TaskController($taskModel);
 $authMiddleware = new AuthMiddleware($jwtService); 
 $corsMiddleware = new CorsMiddleware();
+$apiController = new ApiController();
 
 // 4. Slim App erstellen
 $app = AppFactory::create();
@@ -40,6 +42,7 @@ $app->add($corsMiddleware);
 // 5. Öffentliche Routen
 $app->post('/api/register', [$authController, 'register']);
 $app->post('/api/login', [$authController, 'login']);
+$app->get('/api', [$apiController, 'index']);
 
 
 // 6. Geschützte Routen
