@@ -24,7 +24,7 @@ CREATE TABLE users (
 -- ============================================
 CREATE TABLE groups (
     id         INT AUTO_INCREMENT PRIMARY KEY,
-    name       VARCHAR(255) NOT NULL UNIQUE,
+    name       VARCHAR(100) NOT NULL UNIQUE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -33,12 +33,13 @@ CREATE TABLE groups (
 -- Ein Benutzer angehört zu m Gruppen, Gruppen etweder 1 oder n Benutzen
 -- ============================================
 CREATE TABLE users_groups (
-    id        INT AUTO_INCREMENT PRIMARY KEY,
     user_id   INT NOT NULL,
     groups_id INT NOT NULL,
-    UNIQUE (user_id, groups_id), -- Verhindert doppelte Einträge für die gleiche Benutzer-Gruppe-Kombination
-    FOREIGN KEY (user_id)   REFERENCES users(id),
-    FOREIGN KEY (groups_id) REFERENCES groups(id)
+    PRIMARY KEY (user_id, groups_id), -- Benutzer-Gruppe-Kombination
+    role      ENUM('owner', 'admin', 'member') NOT NULL DEFAULT 'member',
+    assignment_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id)   REFERENCES users(id) ON DELETE CASCADE, -- beim Löschen ein User -> mitgliedschaften löschen
+    FOREIGN KEY (groups_id) REFERENCES groups(id) ON DELETE RESTRICT -- Gruppen mit Benutzern nicht löschen
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
@@ -80,9 +81,9 @@ CREATE TABLE containers (
 -- ============================================
 CREATE TABLE tasks (
     id           INT AUTO_INCREMENT PRIMARY KEY,
-    container_id INT NOT NULL,
-    created_by   INT NOT NULL,
-    title        VARCHAR(255) NOT NULL,
+    container_id INT NOT NULL, -- Tasks exsisteren nur in einem Container 
+    created_by   INT NULL,
+    title        VARCHAR(100) NOT NULL,
     description  TEXT NULL,
     status       ENUM('open', 'in_progress', 'done', 'timed_out') NOT NULL DEFAULT 'open',
     created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -90,22 +91,21 @@ CREATE TABLE tasks (
     deadline     DATETIME NULL,
     attachment VARCHAR(255) NULL, -- URL zu Datei
     deleted_at   DATETIME NULL, -- soft delete
-    deleted_by   INT NULL,
-    FOREIGN KEY (container_id) REFERENCES containers(id),
-    FOREIGN KEY (created_by)   REFERENCES users(id),
-    FOREIGN KEY (deleted_by)   REFERENCES users(id)
+    done_by   INT NULL, -- statistische Auswertung.
+    FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE RESTRICT, -- Container nicht löschbar wenn noch Tasks existieren
+    FOREIGN KEY (created_by)   REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (done_by)   REFERENCES users(id) ON DELETE SET NULL -- task darf nicht gelöscht bei löschen eines Users
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- TASKS_GROUPS (n:m )
+-- GROUPS_TASKS (n:m) an Task können nur Gruppen zugeordnet. einzelne Users werden über die Gruppen zugeordnet.
 -- ============================================
-CREATE TABLE tasks_groups (
-    id        INT AUTO_INCREMENT PRIMARY KEY,
-    groups_id INT NOT NULL,
+CREATE TABLE groups_tasks ( 
+    group_id INT NOT NULL,
     task_id   INT NOT NULL,
-    UNIQUE (groups_id, task_id), -- Verhindert doppelte Einträge für die gleiche Gruppe-Task-Kombination
-    FOREIGN KEY (groups_id) REFERENCES groups(id),
-    FOREIGN KEY (task_id)   REFERENCES tasks(id)
+    PRIMARY KEY (group_id, task_id) , -- Verhindert doppelte Einträge für die gleiche Gruppe-Task-Kombination
+    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE, -- Gruppen-Zugehörigkeit zu Task Löschen.
+    FOREIGN KEY (task_id)   REFERENCES tasks(id) ON DELETE CASCADE -- Task Löschen -> Gruppen Zugehörigkeit Löschen
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
