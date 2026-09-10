@@ -20,8 +20,9 @@ class TaskController {
     }
 
     // GET /api/tasks
-    public function getAll(Request $request, Response $response): Response {
-        $tasks = $this->taskModel->getAll();
+    public function getAllByUser(Request $request, Response $response): Response {
+        $userId = (int) $request->getAttribute('user_id');
+        $tasks = $this->taskModel->getAllByUser($userId);
         return $this->jsonResponse($response, $tasks);
     }
 
