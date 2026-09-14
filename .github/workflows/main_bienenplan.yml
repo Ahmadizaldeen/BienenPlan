@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: your-app-name    # set this to your application's name
+  AZURE_WEBAPP_NAME: Bienen-Plan    # set this to your application's name
   AZURE_WEBAPP_PACKAGE_PATH: '.'      # set this to the path to your web app project, defaults to the repository root
   PHP_VERSION: '8.x'                  # set this to the PHP version to use
 
@@ -48,7 +48,7 @@ jobs:
         id: check_files
         uses: andstor/file-existence-action@87d74d4732ddb824259d80c8a508c0124bf1c673
         with:
-          files: 'composer.json'
+          files: '/backend/composer.json'
 
       - name: Get Composer Cache Directory
         id: composer-cache
@@ -73,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: php-app
-          path: .
+          path: ./backend
 
   deploy:
     permissions:
@@ -96,4 +96,4 @@ jobs:
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: .
+          package: ./backend
