@@ -15,6 +15,7 @@ User
              └── Tasks
                    │
                    └── Subtasks
+```
 ```text
 
 ## Tech-Stack
@@ -48,7 +49,7 @@ cd backend
 
    oder mit GUI-Tool wie. PHPmyAdmin
 
-4. 4. Webserver konfigurieren:
+ 4. Webserver konfigurieren:
    DocumentRoot muss auf `backend/public` zeigen, damit `.env`, `vendor/` und `config/` nicht über HTTP erreichbar sind.
    `mod_rewrite` muss aktiv sein . C:\xampp\apache\conf\httpd.conf -> LoadModule rewrite_module modules/mod_rewrite.so
 
@@ -139,3 +140,6 @@ Privates Ausbildungsprojekt, keine öffentliche Lizenz vergeben.
 
 ## Deploy:
 GitHub Actions workflow for Azure deployment
+[![Build and deploy PHP app to Azure Web App- bienenplan]
+(https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/main_bienenplan.yml/badge.svg)]
+(https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/main_bienenplan.yml)
