@@ -136,3 +136,6 @@ Geplant:
 📄 Lizenz
 
 Privates Ausbildungsprojekt, keine öffentliche Lizenz vergeben.
+
+## Deploy:
+GitHub Actions workflow for Azure deployment
