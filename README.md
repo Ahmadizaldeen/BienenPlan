@@ -3,6 +3,21 @@
 BienenPlan ist eine plattformübergreifende Projektmanagement-Anwendung. Das Backend verwaltet Benutzer, Gruppen, Projekte, Container und Aufgaben. Die fachliche Zuordnung von Aufgaben erfolgt über Gruppen: Ein Benutzer sieht eine Aufgabe, wenn er Mitglied einer der zugewiesenen Gruppen ist.
 
 ## Aktueller Stand
+Programm Hierarchie:
+```text
+User
+ │
+ ├── Groups
+ │
+ └── Projects
+       │
+       └── Containers
+             │
+             └── Tasks
+                   │
+                   └── Subtasks
+```
+```text
 
 Der aktuelle Backend-Stand umfasst:
 
@@ -34,6 +49,52 @@ Noch nicht als API implementiert sind Projekte, Container, Subtasks und Kommenta
 
 ```text
 Flutter Client
+1. Abhängigkeiten installieren:
+cd backend
+   composer install
+   composer require vlucas/phpdotenv
+   composer require slim/slim
+   composer require slim/psr7
+   composer require firebase/php-jwt
+
+2. Umgebungsvariablen konfigurieren:
+   cp .env.example .env
+   # .env mit eigenen DB-Zugangsdaten befüllen
+
+3. Datenbankschema anlegen:
+   mysql -u root -p < data/sql/migrations/000_schema.sql
+
+   oder mit GUI-Tool wie. PHPmyAdmin
+
+ 4. Webserver konfigurieren:
+   DocumentRoot muss auf `backend/public` zeigen, damit `.env`, `vendor/` und `config/` nicht über HTTP erreichbar sind.
+   `mod_rewrite` muss aktiv sein . C:\xampp\apache\conf\httpd.conf -> LoadModule rewrite_module modules/mod_rewrite.so
+
+📡 API Endpoints
+Antwortformat-Konvention: Alle Endpoints antworten mit Content-Type: application/json. Fehler folgen einheitlich dem Muster { "error": "<Nachricht>" }, Erfolgsmeldungen bei Schreiboperationen dem Muster { "message": "<Nachricht>", ... }.
+Öffentlich (keine Authentifizierung erforderlich)
+Methode	   |Endpoint	      |Beschreibung
+GET	      /	               Setup-/Start-Check-Route, zeigt API-Info
+GET	      /api	            API-Info: Name, Version, Status, verfügbare Endpoints
+POST	      /api/register	   Neuen Benutzer registrieren
+POST	      /api/login	      Anmelden, liefert JWT zurück
+
+Geschützt (JWT erforderlich)
+Header bei jeder Anfrage mitschicken: Authorization: Bearer <token>
+Ohne gültigen Token: 401 { "error": "Nicht autorisiert" } bzw. 401 { "error": "Ungültiges oder abgelaufenes Token" }
+Methode	      |Endpoint	      |Beschreibung
+GET	         /api/tasks	      Alle Aufgaben abrufen
+GET	         /api/tasks/{id}	Einzelne Aufgabe abrufen
+POST	         /api/tasks	      Neue Aufgabe erstellen
+PUT	         /api/tasks/{id}	Aufgabe aktualisieren
+DELETE	      /api/tasks/{id}	Aufgabe löschen
+
+⚠️ Aktuell existieren noch keine Endpoints für groups, projects, containers, subtasks und comments — diese Ressourcen sind im DB-Schema bereits angelegt, aber noch nicht über die API erreichbar. Folgt in kommenden Iterationen.
+## 🏗 Architektur
+
+Flutter App
+    │
+    │ HTTP / JSON
     |
     | HTTP + JSON + Bearer JWT
     v
@@ -241,3 +302,10 @@ Backend-MVP in Entwicklung. Authentifizierung, Gruppen und grundlegende Tasks si
 ## Lizenz
 
 Privates Ausbildungsprojekt ohne öffentliche Lizenz.
+Privates Ausbildungsprojekt, keine öffentliche Lizenz vergeben.
+
+## Deploy:
+GitHub Actions workflow for Azure deployment
+[![Build and deploy PHP app to Azure Web App- bienenplan]
+(https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/main_bienenplan.yml/badge.svg)]
+(https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/main_bienenplan.yml)
