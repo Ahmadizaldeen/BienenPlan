@@ -10,3 +10,4 @@ backend/public/uploads/tasks/.gitkeep
 backend/public/uploads/tasks/34_dbb6d5c4f333e8cd.png
 .postman/resources.yaml
 postman/globals/workspace.globals.yaml
+/postman/
