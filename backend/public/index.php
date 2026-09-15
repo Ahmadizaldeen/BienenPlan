@@ -8,9 +8,15 @@ use Slim\Factory\AppFactory;
 use BienenPlan\Config\Database;
 use BienenPlan\Models\User;
 use BienenPlan\Models\Task;
+use BienenPlan\Models\Project;
+use BienenPlan\Models\Container;
+
 use BienenPlan\Services\JwtService;
 use BienenPlan\Controllers\AuthController;
 use BienenPlan\Controllers\TaskController;
+use BienenPlan\Controllers\ProjectController;
+use BienenPlan\Controllers\ContainerController;
+
 use BienenPlan\Middleware\AuthMiddleware;
 use BienenPlan\Middleware\CorsMiddleware;
 use BienenPlan\Controllers\ApiController;
@@ -28,11 +34,15 @@ try{
     $userModel = new User($pdo);
     $taskModel = new Task($pdo);
     $groupModel = new Group($pdo);
+    $projectModel = new Project($pdo);
+    $containerModel = new Container($pdo);
 
     //Manuelle Instanziierung der Controller & Middleware
     $authController = new AuthController($userModel, $jwtService);
     $taskController = new TaskController($taskModel);
     $groupController = new GroupController($groupModel);
+    $projectController = new ProjectController($projectModel);
+    $containerController = new ContainerController($containerModel);
     $authMiddleware = new AuthMiddleware($jwtService); 
     $corsMiddleware = new CorsMiddleware();
     $apiController = new ApiController();
@@ -65,12 +75,14 @@ $app->get('/api', [$apiController, 'index']);
 $app->get('/', [$apiController, 'index']); # Setup Route
 // Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
-$app->group('/api', function ($group) use ($taskController, $groupController) {
+$app->group('/api', function ($group) use ($taskController, $groupController, $projectController, $containerController) {
     $group->get('/tasks', [$taskController, 'getAllByUser']);
     $group->get('/tasks/{id}', [$taskController, 'getById']);
     $group->post('/tasks', [$taskController, 'create']);
     $group->put('/tasks/{id}', [$taskController, 'update']);
     $group->delete('/tasks/{id}', [$taskController, 'delete']);
+    $group->post('/tasks/{id}/status', [$taskController, 'updateStatus']);
+    $group->post('/tasks/{id}/attachment', [$taskController, 'uploadAttachment']);
 
     // Gruppen-Routen
     $group->get('/groups', [$groupController, 'getAllGroups']);
@@ -81,6 +93,20 @@ $app->group('/api', function ($group) use ($taskController, $groupController) {
     $group->get('/users/{userId}/groups', [$groupController, 'getGroupsForUser']);
     $group->post('/tasks/{taskId}/assign/{groupId}', [$groupController, 'assignGroup']);
     $group->delete('/tasks/{taskId}/groups/{groupId}', [$groupController, 'removeGroup']);
+
+    
+    $group->get('/projects', [$projectController, 'getAll']);
+    $group->get('/projects/{id}', [$projectController, 'getById']);
+    $group->post('/projects', [$projectController, 'create']);
+    $group->put('/projects/{id}', [$projectController, 'update']);
+    $group->delete('/projects/{id}', [$projectController, 'delete']);
+    
+    // Container-Routen
+    $group->get('/containers', [$containerController, 'getAll']);
+    $group->get('/containers/{id}', [$containerController, 'getOne']);
+    $group->post('/containers', [$containerController, 'create']);
+    $group->put('/containers/{id}', [$containerController, 'update']);
+    $group->delete('/containers/{id}', [$containerController, 'delete']);
 })->add($authMiddleware);
 
 $app->run();
