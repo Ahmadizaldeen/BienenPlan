@@ -44,7 +44,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' && secrets.AZUREAPPSERVICE_CLIENTID_8D7B1CE37D3246BEAFDEC21335CBE46C != '' && secrets.AZUREAPPSERVICE_TENANTID_F2A548A878614688B465B6A383FBF335 != '' && secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_8996C44896384897A95361EE86FB34E8 != '' }}
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     permissions:
       id-token: write #This is required for requesting the JWT
       contents: read #This is required for actions/checkout
