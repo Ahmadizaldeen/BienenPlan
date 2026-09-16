@@ -44,7 +44,7 @@ catch (Throwable $e){
 
 // Slim App erstellen
 $app = AppFactory::create();
-//$app->setBasePath('/BienenPlan/backend/public');
+$app->setBasePath('/BienenPlan/backend/public');
 
 // Middlewares hinzufügen (Reihenfolge ist wichtig!)
 $app->addBodyParsingMiddleware();
