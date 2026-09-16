@@ -305,7 +305,4 @@ Privates Ausbildungsprojekt ohne öffentliche Lizenz.
 Privates Ausbildungsprojekt, keine öffentliche Lizenz vergeben.
 
 ## Deploy:
-GitHub Actions workflow for Azure deployment
-[![Build and deploy PHP app to Azure Web App- bienenplan]
-(https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/main_bienenplan.yml/badge.svg)]
-(https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/main_bienenplan.yml)
+[![Deploy API to Azure](https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/azure_deploy.yml/badge.svg)](https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/azure_deploy.yml)
