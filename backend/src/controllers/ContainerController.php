@@ -34,7 +34,7 @@ class ContainerController {
         $container = $this->containerModel->findById($id);
 
         // Fremde Container wie "nicht gefunden" behandeln, um ihre Existenz nicht preiszugeben.
-        if (!$container || (int) $container['created_by'] !== $userId) {
+        if (!$container || !$this->containerModel->isVisibleToUser($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Container nicht gefunden.'], 404);
         }
 
@@ -88,7 +88,7 @@ class ContainerController {
         $data = $request->getParsedBody();
 
         $container = $this->containerModel->findById($id);
-        if (!$container || (int) $container['created_by'] !== $userId) {
+        if (!$container || !$this->containerModel->isVisibleToUser($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Container nicht gefunden.'], 404);
         }
 
@@ -115,7 +115,7 @@ class ContainerController {
         $userId = (int) $request->getAttribute('user_id');
 
         $container = $this->containerModel->findById($id);
-        if (!$container || (int) $container['created_by'] !== $userId) {
+        if (!$container || !$this->containerModel->isVisibleToUser($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Container nicht gefunden.'], 404);
         }
 
