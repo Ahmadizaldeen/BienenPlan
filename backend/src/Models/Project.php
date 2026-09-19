@@ -26,16 +26,33 @@ class Project {
     }
 
     // READ (Alle nicht-archivierten projects)
+    // Sichtbar sind eigene Projekte sowie Projekte, die einen Container mit
+    // einer Aufgabe enthalten, die einer Gruppe des Benutzers zugewiesen ist
+    // (z.B. seiner persönlichen Gruppe "Personal user {id}").
     public function getAll(int $userId): array {
 
-        $sql = "SELECT p.*, u.name AS creator_name 
+        $sql = "SELECT DISTINCT p.*, u.name AS creator_name 
                 FROM projects p
                 JOIN users u ON p.created_by = u.id
-                WHERE p.archived_at IS NULL AND p.created_by = :user_id
+                WHERE p.archived_at IS NULL
+                  AND (
+                    p.created_by = :user_id
+                    OR EXISTS (
+                        SELECT 1
+                        FROM containers c
+                        JOIN tasks t ON t.container_id = c.id
+                        JOIN groups_tasks gt ON gt.task_id = t.id
+                        JOIN users_groups ug ON ug.groups_id = gt.group_id
+                        WHERE c.project_id = p.id
+                          AND c.deleted_at IS NULL
+                          AND t.deleted_at IS NULL
+                          AND ug.user_id = :shared_user_id
+                    )
+                  )
                 ORDER BY p.created_at DESC";
         
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute(['user_id' => $userId]);
+        $stmt->execute(['user_id' => $userId, 'shared_user_id' => $userId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
