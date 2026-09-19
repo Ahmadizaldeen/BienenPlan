@@ -75,7 +75,9 @@ $app->get('/api', [$apiController, 'index']);
 $app->get('/', [$apiController, 'index']); # Setup Route
 // Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
-$app->group('/api', function ($group) use ($taskController, $groupController, $projectController, $containerController) {
+$app->group('/api', function ($group) use ($taskController, $groupController, $projectController, $containerController, $authController) {
+    $group->get('/me', [$authController, 'me']);
+
     $group->get('/tasks', [$taskController, 'getAllByUser']);
     $group->get('/tasks/{id}', [$taskController, 'getById']);
     $group->post('/tasks', [$taskController, 'create']);
