@@ -16,6 +16,7 @@ use BienenPlan\Controllers\AuthController;
 use BienenPlan\Controllers\TaskController;
 use BienenPlan\Controllers\ProjectController;
 use BienenPlan\Controllers\ContainerController;
+use BienenPlan\Controllers\UserController;
 
 use BienenPlan\Middleware\AuthMiddleware;
 use BienenPlan\Middleware\CorsMiddleware;
@@ -43,6 +44,7 @@ try{
     $groupController = new GroupController($groupModel);
     $projectController = new ProjectController($projectModel);
     $containerController = new ContainerController($containerModel);
+    $userController = new UserController($userModel);
     $authMiddleware = new AuthMiddleware($jwtService); 
     $corsMiddleware = new CorsMiddleware();
     $apiController = new ApiController();
@@ -75,8 +77,9 @@ $app->get('/api', [$apiController, 'index']);
 $app->get('/', [$apiController, 'index']); # Setup Route
 // Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
-$app->group('/api', function ($group) use ($taskController, $groupController, $projectController, $containerController, $authController) {
+$app->group('/api', function ($group) use ($taskController, $groupController, $projectController, $containerController, $authController, $userController) {
     $group->get('/me', [$authController, 'me']);
+    $group->post('/me/picture', [$userController, 'uploadPicture']);
 
     $group->get('/tasks', [$taskController, 'getAllByUser']);
     $group->get('/tasks/{id}', [$taskController, 'getById']);
