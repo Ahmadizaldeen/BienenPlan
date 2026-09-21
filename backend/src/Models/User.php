@@ -59,6 +59,12 @@ class User {
         return $stmt->fetch();
     }
 
+    public function findById(int $id): array|false {
+        $stmt = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id AND deleted_at IS NULL");
+        $stmt->execute(['id' => $id]);
+        return $stmt->fetch();
+    }
+
     public function set_picture(int $user_id, string $url) {
 
     }

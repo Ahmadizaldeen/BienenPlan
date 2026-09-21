@@ -56,4 +56,18 @@ class AuthController {
         ]));
         return $response->withHeader('Content-Type', 'application/json');
     }
+
+    // GET /api/me
+    public function me(Request $request, Response $response): Response {
+        $userId = (int) $request->getAttribute('user_id');
+        $user = $this->userModel->findById($userId);
+
+        if (!$user) {
+            $response->getBody()->write(json_encode(['error' => 'Benutzer nicht gefunden']));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(404);
+        }
+
+        $response->getBody()->write(json_encode($user));
+        return $response->withHeader('Content-Type', 'application/json');
+    }
 }

@@ -44,7 +44,9 @@ class Task {
     }
 
     // Tasks für einen User (eingeloggt) abrufen
-    public function getAllByUser(int $userId): array { # TODO: Gruppenfilter , Gruppe mit Avatar für UI
+    // Sichtbar sind Tasks in Containern, die dem Benutzer gehören, sowie
+    // zusätzlich Tasks, die explizit einer Gruppe des Benutzers zugewiesen wurden.
+    public function getAllByUser(int $userId): array { 
     $sql = "SELECT 
                 t.*, 
                 c.title AS container_title, 
@@ -57,11 +59,11 @@ class Task {
             JOIN containers c ON t.container_id = c.id
             JOIN projects p ON c.project_id = p.id
             JOIN users u ON t.created_by = u.id
-            JOIN groups_tasks gt ON gt.task_id = t.id
-            JOIN groups g ON g.id = gt.group_id
-            JOIN users_groups ug ON ug.groups_id = gt.group_id
+            LEFT JOIN groups_tasks gt ON gt.task_id = t.id
+            LEFT JOIN groups g ON g.id = gt.group_id
+            LEFT JOIN users_groups ug ON ug.groups_id = gt.group_id AND ug.user_id = :user_id
             WHERE t.deleted_at IS NULL
-              AND ug.user_id = :user_id
+              AND (c.created_by = :owner_id OR ug.user_id = :user_id)
             GROUP BY 
                 t.id, 
                 c.title, 
@@ -71,23 +73,49 @@ class Task {
             ORDER BY t.created_at DESC";
     
     $stmt = $this->pdo->prepare($sql);
-    $stmt->execute(['user_id' => $userId]);
+    $stmt->execute(['user_id' => $userId, 'owner_id' => $userId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-    // READ (Einzelne Task nach ID)
+    // READ (Einzelne Task nach ID, inkl. Projekt- und Gruppen-Zuordnung)
     public function getById(int $id): ?array {
-        $sql = "SELECT t.*, c.title AS container_title, u.name AS creator_name 
+        $sql = "SELECT 
+                    t.*, 
+                    c.title AS container_title, 
+                    p.id AS project_id,
+                    p.name AS project_name,
+                    p.created_by AS project_created_by,
+                    u.name AS creator_name,
+                    GROUP_CONCAT(DISTINCT gt.group_id ORDER BY gt.group_id) AS group_ids,
+                    GROUP_CONCAT(DISTINCT g.name ORDER BY g.name SEPARATOR ', ') AS group_names
                 FROM tasks t
                 JOIN containers c ON t.container_id = c.id
+                JOIN projects p ON c.project_id = p.id
                 JOIN users u ON t.created_by = u.id
-                WHERE t.id = :id AND t.deleted_at IS NULL";
-        
+                LEFT JOIN groups_tasks gt ON gt.task_id = t.id
+                LEFT JOIN groups g ON g.id = gt.group_id
+                WHERE t.id = :id AND t.deleted_at IS NULL
+                GROUP BY t.id, c.title, p.id, p.name, p.created_by, u.name";
+
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['id' => $id]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $result ?: null;
+    }
+
+    // UPDATE nur Status
+    public function updateStatus(int $id, string $status): bool {
+        $sql = "UPDATE tasks SET status = :status WHERE id = :id AND deleted_at IS NULL";
+        $stmt = $this->pdo->prepare($sql);
+        return $stmt->execute(['id' => $id, 'status' => $status]);
+    }
+
+    // UPDATE nur Anhang (nach Datei-Upload)
+    public function updateAttachment(int $id, string $attachment): bool {
+        $sql = "UPDATE tasks SET attachment = :attachment WHERE id = :id AND deleted_at IS NULL";
+        $stmt = $this->pdo->prepare($sql);
+        return $stmt->execute(['id' => $id, 'attachment' => $attachment]);
     }
 
     // UPDATE
