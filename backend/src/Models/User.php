@@ -60,12 +60,17 @@ class User {
     }
 
     public function findById(int $id): array|false {
-        $stmt = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id AND deleted_at IS NULL");
+        $stmt = $this->db->prepare("SELECT id, name, email, picture FROM users WHERE id = :id AND deleted_at IS NULL");
         $stmt->execute(['id' => $id]);
         return $stmt->fetch();
     }
 
-    public function set_picture(int $user_id, string $url) {
-
+    /** Speichert nur den relativen, vom Server erzeugten Bildpfad. */
+    public function setPicture(int $userId, string $url): bool {
+        $stmt = $this->db->prepare(
+            "UPDATE users SET picture = :picture WHERE id = :id AND deleted_at IS NULL"
+        );
+        $stmt->execute(['picture' => $url, 'id' => $userId]);
+        return $stmt->rowCount() === 1;
     }
 }
