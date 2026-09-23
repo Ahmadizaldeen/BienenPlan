@@ -1,0 +1,5 @@
+<IfModule mod_headers.c>
+    # Flutter Web läuft im Entwicklungsmodus auf einem anderen Port und
+    # benötigt deshalb CORS auch für statisch von Apache gelieferte Bilder.
+    Header always set Access-Control-Allow-Origin "*"
+</IfModule>

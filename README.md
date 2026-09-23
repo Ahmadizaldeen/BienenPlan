@@ -3,7 +3,9 @@
 BienenPlan ist eine plattformübergreifende Projektmanagement-Anwendung. Das Backend verwaltet Benutzer, Gruppen, Projekte, Container und Aufgaben. Die fachliche Zuordnung von Aufgaben erfolgt über Gruppen: Ein Benutzer sieht eine Aufgabe, wenn er Mitglied einer der zugewiesenen Gruppen ist.
 
 ## Aktueller Stand
+
 Programm Hierarchie:
+
 ```text
 User
  │
@@ -17,7 +19,8 @@ User
                    │
                    └── Subtasks
 ```
-```text
+
+````text
 
 Der aktuelle Backend-Stand umfasst:
 
@@ -29,9 +32,11 @@ Der aktuelle Backend-Stand umfasst:
 - Benutzerbezogene Task-Liste über Gruppenmitgliedschaften
 - Gruppenverwaltung und Zuordnung von Benutzern zu Gruppen
 - Zuordnung von Gruppen zu Tasks
+- Projekt- und Container-CRUD für sichtbare Ressourcen
+- Profilbild-Upload für den authentifizierten Benutzer
 - CORS- und Auth-Middleware
 
-Noch nicht als API implementiert sind Projekte, Container, Subtasks und Kommentare. Diese Tabellen sind im Schema vorhanden und bilden die nächsten Ausbaustufen.
+Aktuell in der API umgesetzt sind vor allem Auth, Benutzerprofil, Gruppen, Tasks, Projekte und Container. Subtasks und Kommentare sind im Schema vorhanden, aber noch nicht vollständig als API-Endpunkte umgesetzt.
 
 ## Technologie
 
@@ -106,7 +111,7 @@ Slim REST API (backend/public/index.php)
     +-- Services: JWT und Environment-Konfiguration
     v
 MySQL (bienenplan)
-```
+````
 
 ### Schichten
 
@@ -176,6 +181,8 @@ Content-Type: application/json
 
 | Methode  | Endpoint                                 | Aktuelle Funktion                                                         |
 | -------- | ---------------------------------------- | ------------------------------------------------------------------------- |
+| `GET`    | `/api/me`                                | Aktuellen Benutzer mit Authentifizierungsdaten laden                      |
+| `POST`   | `/api/me/picture`                        | Profilbild für den angemeldeten Benutzer hochladen                        |
 | `GET`    | `/api/tasks`                             | Tasks des angemeldeten Benutzers über seine Gruppenmitgliedschaften laden |
 | `GET`    | `/api/tasks/{id}`                        | Eine nicht gelöschte Task laden                                           |
 | `POST`   | `/api/tasks`                             | Task in einem Container anlegen                                           |
@@ -189,6 +196,16 @@ Content-Type: application/json
 | `GET`    | `/api/tasks/{taskId}/groups`             | Gruppen einer Task laden                                                  |
 | `POST`   | `/api/tasks/{taskId}/assign/{groupId}`   | Gruppe einer Task zuweisen                                                |
 | `DELETE` | `/api/tasks/{taskId}/groups/{groupId}`   | Gruppenzuweisung von einer Task entfernen                                 |
+| `GET`    | `/api/projects`                          | Projekte des angemeldeten Benutzers laden                                 |
+| `GET`    | `/api/projects/{id}`                     | Einzelnes Projekt laden                                                   |
+| `POST`   | `/api/projects`                          | Projekt anlegen                                                           |
+| `PUT`    | `/api/projects/{id}`                     | Projekt aktualisieren                                                     |
+| `DELETE` | `/api/projects/{id}`                     | Projekt archivieren                                                       |
+| `GET`    | `/api/containers`                        | Container sichtbar für den aktuellen Benutzer laden                       |
+| `GET`    | `/api/containers/{id}`                   | Einzelnen Container laden                                                 |
+| `POST`   | `/api/containers`                        | Container anlegen                                                         |
+| `PUT`    | `/api/containers/{id}`                   | Container aktualisieren                                                   |
+| `DELETE` | `/api/containers/{id}`                   | Container löschen                                                         |
 
 ### Aktuelle Task-Sichtbarkeit
 
@@ -222,18 +239,18 @@ Tasks werden nicht direkt einzelnen Benutzern zugewiesen. Eine direkte Benutzerz
 
 ## Backend-Funktionen
 
-| Bereich       | Aktuelle Funktionen                                                    | Nächste Funktionen                                                 |
-| ------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Auth          | `register`, `login`, Passwort-Hashing, JWT                             | Logout/Token-Sperre, Passwort-Reset, E-Mail-Validierung            |
-| Benutzer      | `create`, `findByEmail`                                                | Profil lesen/ändern, Bild speichern, Benutzer deaktivieren         |
-| Gruppen       | Gruppen lesen/erstellen, Benutzer hinzufügen, Mitglieder/Gruppen lesen | Rollen prüfen, Benutzer entfernen, Gruppe ändern/archivieren       |
-| Tasks         | Erstellen, userbezogen lesen, Einzelansicht, ändern, Soft-Delete       | Berechtigungen, Statuswechsel, wiederherstellen, Filter/Pagination |
-| Task-Gruppen  | Zuweisen, entfernen, Gruppen einer Task lesen                          | Duplicate-/Ownership-Prüfung, Transaktionen                        |
-| Projekte      | Nur Datenbanktabelle                                                   | Vollständiges CRUD, Archivierung, Zugriffskontrolle                |
-| Container     | Nur Datenbanktabelle                                                   | CRUD, Projektzuordnung, Soft-Delete                                |
-| Subtasks      | Nur Datenbanktabelle                                                   | CRUD, Erledigungsstatus, Reihenfolge                               |
-| Kommentare    | Nur Datenbanktabelle                                                   | CRUD, Autor, Soft-Delete                                           |
-| Infrastruktur | PDO, CORS, Error Handler, Composer                                     | zentrale Validierung, Logging, API-Versionierung                   |
+| Bereich       | Aktuelle Funktionen                                                                         | Nächste Funktionen                                                 |
+| ------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Auth          | `register`, `login`, Passwort-Hashing, JWT                                                  | Logout/Token-Sperre, Passwort-Reset, E-Mail-Validierung            |
+| Benutzer      | `create`, `findByEmail`, `findById`, `setPicture`, Profilbild-Upload über `/api/me/picture` | Profil ändern, Benutzer deaktivieren, Bild-Optimierung             |
+| Gruppen       | Gruppen lesen/erstellen, Benutzer hinzufügen, Mitglieder/Gruppen lesen                      | Rollen prüfen, Benutzer entfernen, Gruppe ändern/archivieren       |
+| Tasks         | Erstellen, userbezogen lesen, Einzelansicht, ändern, Soft-Delete                            | Berechtigungen, Statuswechsel, wiederherstellen, Filter/Pagination |
+| Task-Gruppen  | Zuweisen, entfernen, Gruppen einer Task lesen                                               | Duplicate-/Ownership-Prüfung, Transaktionen                        |
+| Projekte      | CRUD über API                                                                               | Archivierung, Zugriffskontrolle, Filterung                         |
+| Container     | CRUD über API                                                                               | Soft-Delete, erweitertes ACL, Sortierung                           |
+| Subtasks      | Nur Datenbanktabelle                                                                        | CRUD, Erledigungsstatus, Reihenfolge                               |
+| Kommentare    | Nur Datenbanktabelle                                                                        | CRUD, Autor, Soft-Delete                                           |
+| Infrastruktur | PDO, CORS, Error Handler, Composer                                                          | zentrale Validierung, Logging, API-Versionierung                   |
 
 ## Meilensteine
 
@@ -305,4 +322,5 @@ Privates Ausbildungsprojekt ohne öffentliche Lizenz.
 Privates Ausbildungsprojekt, keine öffentliche Lizenz vergeben.
 
 ## Deploy:
+
 [![Deploy API to Azure](https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/azure_deploy.yml/badge.svg)](https://github.com/Ahmadizaldeen/BienenPlan/actions/workflows/azure_deploy.yml)
