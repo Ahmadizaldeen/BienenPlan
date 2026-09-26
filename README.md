@@ -72,7 +72,7 @@ cd backend
    oder mit GUI-Tool wie. PHPmyAdmin
 
  4. Webserver konfigurieren:
-   DocumentRoot muss auf `backend/public` zeigen, damit `.env`, `vendor/` und `config/` nicht über HTTP erreichbar sind.
+   Für einen Apache-VirtualHost sollte der DocumentRoot auf `backend/public` zeigen, damit `.env`, `vendor/` und `config/` nicht über HTTP erreichbar sind. Bei der einfachen XAMPP-Installation unter `htdocs` bleibt der DocumentRoot dagegen unverändert; die API-URL enthält dann den Projektpfad, z. B. `/BienenPlanBackend/backend/public`.
    `mod_rewrite` muss aktiv sein . C:\xampp\apache\conf\httpd.conf -> LoadModule rewrite_module modules/mod_rewrite.so
 
 📡 API Endpoints
