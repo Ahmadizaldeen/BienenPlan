@@ -3,34 +3,33 @@
 // Provides endpoints to create, read, update, and delete groups, as well as manage their relationships with users and tasks.
 
 // Endpoints:
-
 // getAllGroups
-// createGroup 
-// addUserToGroup 
-// getGroupsForTask 
-// getUsersInGroup 
-// assignGroup 
-// removeGroup 
-// getUsersInGroup
-// getGroupsForUser
+// createGroup
 // addUserToGroup
+// getGroupsForTask
 // assignGroup
 // removeGroup
+// getUsersInGroup
 // getGroupsForUser
+// getPersonalGroupUser
 
 namespace BienenPlan\Controllers;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use BienenPlan\Models\Group;
+use BienenPlan\Models\User;
 
 class GroupController
 {
     private Group $groupModel;
+    private User $userModel;
 
-    public function __construct(Group $groupModel)
+    // User-Model wird injiziert, damit Benutzerdaten nur über User::findById geladen werden.
+    public function __construct(Group $groupModel, User $userModel)
     {
         $this->groupModel = $groupModel;
+        $this->userModel = $userModel;
     }
 
     // Helper für JSON-Antworten
@@ -64,18 +63,49 @@ class GroupController
     public function createGroup(Request $request, Response $response, array $args): Response
     {
         $data = (array) $request->getParsedBody();
-        $name = $data['name'] ?? null;
+        $name = trim((string) ($data['name'] ?? ''));
+        $rawUserIds = $data['user_ids'] ?? [];
 
         if (!$name) {
             return $this->jsonResponse($response, ['error' => 'Name der Gruppe ist erforderlich'], 400);
         }
 
-        $success = $this->groupModel->createGroup($name);
-        if (!$success) {
+        // "Personal user ..." ist für persönliche Gruppen reserviert (verhindert vorgetäuschte Zuordnungen).
+        if (Group::isReservedName($name)) {
+            return $this->jsonResponse($response, ['error' => 'Dieser Gruppenname ist reserviert'], 400);
+        }
+
+        if (!is_array($rawUserIds)) {
+            return $this->jsonResponse($response, ['error' => 'user_ids muss eine Liste sein'], 400);
+        }
+
+        $userIds = [];
+        foreach ($rawUserIds as $userId) {
+            if ((!is_int($userId) && (!is_string($userId) || !ctype_digit($userId))) || (int) $userId < 1) {
+                return $this->jsonResponse($response, ['error' => 'Ungültige Benutzer-ID'], 400);
+            }
+            $userIds[] = (int) $userId;
+        }
+        $userIds = array_values(array_unique($userIds));
+
+        try {
+            $groupId = $this->groupModel->createGroup($name, $userIds);
+        } catch (\PDOException $exception) {
+            if ($exception->getCode() === '23000' && ($exception->errorInfo[1] ?? null) === 1062) {
+                return $this->jsonResponse($response, ['error' => 'Eine Gruppe mit diesem Namen existiert bereits'], 409);
+            }
+
+            throw $exception;
+        }
+        if ($groupId < 1) {
             return $this->jsonResponse($response, ['error' => 'Gruppe konnte nicht erstellt werden'], 500);
         }
 
-        return $this->jsonResponse($response, ['message' => 'Gruppe erfolgreich erstellt'], 201);
+        return $this->jsonResponse($response, [
+            'id' => $groupId,
+            'name' => $name,
+            'message' => 'Gruppe erfolgreich erstellt'
+        ], 201);
     }
 
     // GET all groups for a Task
@@ -159,4 +189,34 @@ class GroupController
         ]);
     }
 
+    // GET user data of a personal group ("Personal user {user_id}")
+    public function getPersonalGroupUser(Request $request, Response $response, array $args): Response
+    {
+        $groupId = $this->getRouteId($args, 'groupId');
+
+        if ($groupId === null) {
+            return $this->jsonResponse($response, ['error' => 'Ungültige Gruppen-ID'], 400);
+        }
+
+        $group = $this->groupModel->findGroupById($groupId);
+        if ($group === false) {
+            return $this->jsonResponse($response, ['error' => 'Gruppe nicht gefunden'], 404);
+        }
+
+        // Erkennung zentral im Model (FK-Spalte vor Namens-Fallback), nicht mehr doppelt hier.
+        $userId = Group::resolvePersonalUserId($group);
+        if ($userId === null) {
+            return $this->jsonResponse($response, ['error' => 'Gruppe ist keine persönliche Gruppe'], 422);
+        }
+
+        $user = $this->userModel->findById($userId);
+        if ($user === false) {
+            return $this->jsonResponse($response, ['error' => 'Benutzer der persönlichen Gruppe nicht gefunden'], 404);
+        }
+
+        return $this->jsonResponse($response, [
+            'group_id' => (int) $group['id'],
+            'user' => $user
+        ]);
+    }
 }

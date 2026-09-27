@@ -65,6 +65,14 @@ class User {
         return $stmt->fetch();
     }
 
+    public function getAllActive(): array {
+        $stmt = $this->db->prepare(
+            "SELECT id, name FROM users WHERE deleted_at IS NULL ORDER BY name"
+        );
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     /** Speichert nur den relativen, vom Server erzeugten Bildpfad. */
     public function setPicture(int $userId, string $url): bool {
         $stmt = $this->db->prepare(

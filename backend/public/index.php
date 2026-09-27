@@ -41,7 +41,7 @@ try{
     //Manuelle Instanziierung der Controller & Middleware
     $authController = new AuthController($userModel, $jwtService);
     $taskController = new TaskController($taskModel);
-    $groupController = new GroupController($groupModel);
+    $groupController = new GroupController($groupModel, $userModel);
     $projectController = new ProjectController($projectModel);
     $containerController = new ContainerController($containerModel);
     $userController = new UserController($userModel);
@@ -83,6 +83,7 @@ $app->get('/', [$apiController, 'index']); # Setup Route
 $app->group('/api', function ($group) use ($taskController, $groupController, $projectController, $containerController, $authController, $userController) {
     $group->get('/me', [$authController, 'me']);
     $group->post('/me/picture', [$userController, 'uploadPicture']);
+    $group->get('/users', [$userController, 'getAll']);
 
     $group->get('/tasks', [$taskController, 'getAllByUser']);
     $group->get('/tasks/{id}', [$taskController, 'getById']);
@@ -98,6 +99,7 @@ $app->group('/api', function ($group) use ($taskController, $groupController, $p
     $group->post('/groups/{groupId}/addUser/{userId}', [$groupController, 'addUserToGroup']);
     $group->get('/tasks/{taskId}/groups', [$groupController, 'getGroupsForTask']);
     $group->get('/groups/{groupId}/users', [$groupController, 'getUsersInGroup']);
+    $group->get('/groups/{groupId}/personal-user', [$groupController, 'getPersonalGroupUser']);
     $group->get('/users/{userId}/groups', [$groupController, 'getGroupsForUser']);
     $group->post('/tasks/{taskId}/assign/{groupId}', [$groupController, 'assignGroup']);
     $group->delete('/tasks/{taskId}/groups/{groupId}', [$groupController, 'removeGroup']);

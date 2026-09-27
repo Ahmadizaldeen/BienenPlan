@@ -189,9 +189,10 @@ Content-Type: application/json
 | `PUT`    | `/api/tasks/{id}`                        | Titel, Beschreibung, Status, Deadline und Attachment aktualisieren        |
 | `DELETE` | `/api/tasks/{id}`                        | Task per Soft-Delete löschen                                              |
 | `GET`    | `/api/groups`                            | Alle Gruppen laden                                                        |
-| `POST`   | `/api/groups`                            | Eine Gruppe anlegen                                                       |
+| `POST`   | `/api/groups`                            | Eine Gruppe anlegen (Namen `Personal user …` sind reserviert)             |
 | `POST`   | `/api/groups/{groupId}/addUser/{userId}` | Benutzer einer Gruppe hinzufügen                                          |
 | `GET`    | `/api/groups/{groupId}/users`            | Benutzer einer Gruppe laden                                               |
+| `GET`    | `/api/groups/{groupId}/personal-user`    | Benutzerdaten einer persönlichen Gruppe (`Personal user {id}`) laden      |
 | `GET`    | `/api/users/{userId}/groups`             | Gruppen eines Benutzers laden                                             |
 | `GET`    | `/api/tasks/{taskId}/groups`             | Gruppen einer Task laden                                                  |
 | `POST`   | `/api/tasks/{taskId}/assign/{groupId}`   | Gruppe einer Task zuweisen                                                |
@@ -206,6 +207,8 @@ Content-Type: application/json
 | `POST`   | `/api/containers`                        | Container anlegen                                                         |
 | `PUT`    | `/api/containers/{id}`                   | Container aktualisieren                                                   |
 | `DELETE` | `/api/containers/{id}`                   | Container löschen                                                         |
+
+Gruppen-Listen (`/api/groups`, `/api/tasks/{taskId}/groups`, `/api/users/{userId}/groups`) liefern je Gruppe `id`, `name`, `personal_user_id`, `personal_user_name` und `created_at`. Bei persönlichen Gruppen enthält `personal_user_name` den Benutzernamen (sonst `null`), sodass kein Zusatz-Request pro Gruppe nötig ist.
 
 ### Aktuelle Task-Sichtbarkeit
 
