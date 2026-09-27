@@ -27,6 +27,14 @@ class UserController
         return $response->withHeader('Content-Type', 'application/json')->withStatus($status);
     }
 
+    // GET /api/users
+    public function getAll(Request $request, Response $response): Response
+    {
+        return $this->jsonResponse($response, [
+            'users' => $this->userModel->getAllActive(),
+        ]);
+    }
+
     // POST /api/me/picture (multipart/form-data, Feld: "file")
     public function uploadPicture(Request $request, Response $response): Response
     {
