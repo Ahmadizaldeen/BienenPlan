@@ -5,12 +5,18 @@ namespace BienenPlan\Controllers;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use BienenPlan\Models\Task;
+use BienenPlan\Services\FileValidationService;
 
 class TaskController {
     private Task $taskModel;
+    private FileValidationService $fileValidationService;
 
-    public function __construct(Task $taskModel) {
+    public function __construct(
+        Task $taskModel,
+        ?FileValidationService $fileValidationService = null,
+    ) {
         $this->taskModel = $taskModel; # Dependency Injection, Task in TaskController verfügbar machen
+        $this->fileValidationService = $fileValidationService ?? new FileValidationService();
     }
 
     // Helper für JSON-Antworten
@@ -126,22 +132,36 @@ class TaskController {
         $uploadedFiles = $request->getUploadedFiles();
         $file = $uploadedFiles['file'] ?? null;
 
-        if (!$file || $file->getError() !== UPLOAD_ERR_OK) {
+        if (!$file) {
             return $this->jsonResponse($response, ['error' => 'Keine gültige Datei hochgeladen'], 400);
         }
 
-        $allowedExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'docx', 'xlsx', 'txt'];
-        $originalName = $file->getClientFilename() ?? 'datei';
-        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-
-        if (!in_array($extension, $allowedExtensions, true)) {
-            return $this->jsonResponse($response, ['error' => 'Dateityp nicht erlaubt'], 400);
+        try {
+            $validation = $this->fileValidationService->validate(
+                $file,
+                [
+                    'pdf' => ['application/pdf'],
+                    'png' => ['image/png'],
+                    'jpg' => ['image/jpeg'],
+                    'jpeg' => ['image/jpeg'],
+                    'gif' => ['image/gif'],
+                    'docx' => [
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'application/zip',
+                    ],
+                    'xlsx' => [
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        'application/zip',
+                    ],
+                    'txt' => ['text/plain'],
+                ],
+                10 * 1024 * 1024,
+            );
+        } catch (\InvalidArgumentException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 400);
         }
 
-        // 10 MB Obergrenze
-        if ($file->getSize() !== null && $file->getSize() > 10 * 1024 * 1024) {
-            return $this->jsonResponse($response, ['error' => 'Datei ist zu groß (max. 10 MB)'], 400);
-        }
+        $extension = $validation['extension'];
 
         $uploadDir = __DIR__ . '/../../public/uploads/tasks';
         if (!is_dir($uploadDir)) {
