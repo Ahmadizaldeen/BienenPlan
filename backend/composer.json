@@ -6,6 +6,8 @@
         }
     },
     "require": {
+        "ext-dom": "*",
+        "ext-zip": "*",
         "php": "^8.2",
         "vlucas/phpdotenv": "^5.7",
         "slim/slim": "^4.15",
