@@ -122,7 +122,7 @@ class GroupController
         ]);
     }
 
-    public function assignGroup(Request $request, Response $response, array $args): Response # TODO Validierung der IDs, Assignment prüfen ob vorhanden
+    public function assignGroup(Request $request, Response $response, array $args): Response
     {
         $taskId = $this->getRouteId($args, 'taskId');
         $groupId = $this->getRouteId($args, 'groupId');
