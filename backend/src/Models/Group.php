@@ -123,19 +123,31 @@ class Group
     public function assignGroup(int $taskId, int $groupId): bool
     {
         $statement = $this->pdo->prepare(
-            "INSERT INTO groups_tasks (task_id, group_id) VALUES (:task_id, :group_id)"
+            "INSERT INTO groups_tasks (task_id, group_id)
+             SELECT t.id, g.id
+             FROM tasks t
+             JOIN groups g ON g.id = :group_id
+             WHERE t.id = :task_id
+               AND t.deleted_at IS NULL"
         );
 
-        return $statement->execute([
+        $statement->execute([
             'task_id' => $taskId,
             'group_id' => $groupId
         ]);
+
+        return $statement->rowCount() === 1;
     }
 
     public function removeGroup(int $taskId, int $groupId): bool
     {
         $statement = $this->pdo->prepare(
-            "DELETE FROM groups_tasks WHERE task_id = :task_id AND group_id = :group_id"
+            "DELETE gt
+             FROM groups_tasks gt
+             JOIN tasks t ON t.id = gt.task_id
+             WHERE gt.task_id = :task_id
+               AND gt.group_id = :group_id
+               AND t.deleted_at IS NULL"
         );
         $statement->execute([
             'task_id' => $taskId,
