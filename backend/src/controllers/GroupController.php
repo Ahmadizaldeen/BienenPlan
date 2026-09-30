@@ -122,7 +122,7 @@ class GroupController
         ]);
     }
 
-    public function assignGroup(Request $request, Response $response, array $args): Response # TODO Validierung der IDs, Assignment prüfen ob vorhanden
+    public function assignGroup(Request $request, Response $response, array $args): Response
     {
         $taskId = $this->getRouteId($args, 'taskId');
         $groupId = $this->getRouteId($args, 'groupId');
@@ -131,7 +131,20 @@ class GroupController
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
 
-        $this->groupModel->assignGroup($taskId, $groupId);
+        try {
+            $assigned = $this->groupModel->assignGroup($taskId, $groupId);
+        } catch (\PDOException $exception) {
+            if ($exception->getCode() === '23000' && ($exception->errorInfo[1] ?? null) === 1062) {
+                return $this->jsonResponse($response, ['error' => 'Gruppe ist diesem Task bereits zugeordnet'], 409);
+            }
+
+            throw $exception;
+        }
+
+        if (!$assigned) {
+            return $this->jsonResponse($response, ['error' => 'Task oder Gruppe nicht gefunden'], 404);
+        }
+
         return $this->jsonResponse($response, ['message' => 'Gruppe dem Task zugeordnet'], 201);
     }
 
@@ -144,7 +157,10 @@ class GroupController
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
 
-        $this->groupModel->removeGroup($taskId, $groupId);
+        if (!$this->groupModel->removeGroup($taskId, $groupId)) {
+            return $this->jsonResponse($response, ['error' => 'Task oder Gruppenzuweisung nicht gefunden'], 404);
+        }
+
         return $this->jsonResponse($response, ['message' => 'Gruppe vom Task entfernt']);
     }
 

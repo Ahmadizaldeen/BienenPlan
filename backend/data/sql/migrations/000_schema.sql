@@ -93,10 +93,14 @@ CREATE TABLE tasks (
     deadline     DATETIME NULL,
     attachment VARCHAR(255) NULL, -- URL zu Datei
     deleted_at   DATETIME NULL, -- soft delete
-    done_by   INT NULL, -- statistische Auswertung.
+    deleted_by   INT NULL,
+    done_by      INT NULL, -- statistische Auswertung.
+    INDEX idx_tasks_deleted_at (deleted_at),
     FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE RESTRICT, -- Container nicht löschbar wenn noch Tasks existieren
     FOREIGN KEY (created_by)   REFERENCES users(id) ON DELETE SET NULL,
-    FOREIGN KEY (done_by)   REFERENCES users(id) ON DELETE SET NULL -- task darf nicht gelöscht bei löschen eines Users
+    CONSTRAINT fk_tasks_deleted_by
+        FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (done_by)      REFERENCES users(id) ON DELETE SET NULL -- task darf nicht gelöscht bei löschen eines Users
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================

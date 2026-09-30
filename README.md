@@ -92,9 +92,9 @@ GET	         /api/tasks	      Alle Aufgaben abrufen
 GET	         /api/tasks/{id}	Einzelne Aufgabe abrufen
 POST	         /api/tasks	      Neue Aufgabe erstellen
 PUT	         /api/tasks/{id}	Aufgabe aktualisieren
-DELETE	      /api/tasks/{id}	Aufgabe löschen
+DELETE	      /api/tasks/{id}	Aufgabe als Container-/Projekt-Eigentümer per Soft-Delete löschen
 
-⚠️ Aktuell existieren noch keine Endpoints für groups, projects, containers, subtasks und comments — diese Ressourcen sind im DB-Schema bereits angelegt, aber noch nicht über die API erreichbar. Folgt in kommenden Iterationen.
+Gruppen-, Projekt- und Container-Endpunkte sind teilweise umgesetzt und unten aufgeführt. Subtasks und Kommentare sind derzeit nur im Datenbankschema vorhanden und noch nicht als API-Endpunkte verfügbar.
 ## 🏗 Architektur
 
 Flutter App
@@ -149,6 +149,14 @@ Datenbank und Tabellen anlegen:
 mysql -u root -p < data/sql/migrations/000_schema.sql
 ```
 
+Für eine bestehende Datenbank, die noch kein `tasks.deleted_by` und den zugehörigen Index/Fremdschlüssel enthält, stattdessen die Migration ausführen:
+
+```powershell
+mysql -u root -p bienenplan < data/sql/migrations/001_add_task_soft_delete_metadata.sql
+```
+
+Die Migration ist wiederholbar. `000_schema.sql` setzt die Entwicklungsdatenbank hingegen zurück (`DROP DATABASE`); nicht zum Aktualisieren einer bestehenden Datenbank verwenden.
+
 Optional Testdaten laden:
 
 ```powershell
@@ -187,7 +195,7 @@ Content-Type: application/json
 | `GET`    | `/api/tasks/{id}`                        | Eine nicht gelöschte Task laden                                           |
 | `POST`   | `/api/tasks`                             | Task in einem Container anlegen                                           |
 | `PUT`    | `/api/tasks/{id}`                        | Titel, Beschreibung, Status, Deadline und Attachment aktualisieren        |
-| `DELETE` | `/api/tasks/{id}`                        | Task per Soft-Delete löschen                                              |
+| `DELETE` | `/api/tasks/{id}`                        | Task als Container-/Projekt-Eigentümer per Soft-Delete löschen            |
 | `GET`    | `/api/groups`                            | Alle Gruppen laden                                                        |
 | `POST`   | `/api/groups`                            | Eine Gruppe anlegen (Namen `Personal user …` sind reserviert)             |
 | `POST`   | `/api/groups/{groupId}/addUser/{userId}` | Benutzer einer Gruppe hinzufügen                                          |
@@ -216,6 +224,8 @@ Gruppen-Listen (`/api/groups`, `/api/tasks/{taskId}/groups`, `/api/users/{userId
 
 Die Einzelabfrage `GET /api/tasks/{id}` prüft aktuell nur die Task-ID und den Soft-Delete-Status. Eine Berechtigungsprüfung anhand der Benutzergruppen ist als Sicherheits-Meilenstein vorgesehen.
 
+Gruppenzuweisungen sind nur für vorhandene, nicht gelöschte Tasks und vorhandene Gruppen möglich. Ungültige IDs führen zu `400`, nicht vorhandene Tasks oder Gruppen zu `404`. Wird dieselbe Gruppe einem Task erneut zugewiesen, antwortet `POST /api/tasks/{taskId}/assign/{groupId}` mit `409 Conflict` und `{ "error": "Gruppe ist diesem Task bereits zugeordnet" }`; die bestehende Zuordnung bleibt unverändert.
+
 ## Datenmodell
 
 | Tabelle        | Zweck                                     | Zentrale Beziehungen                                       |
@@ -225,7 +235,7 @@ Die Einzelabfrage `GET /api/tasks/{id}` prüft aktuell nur die Task-ID und den S
 | `users_groups` | Gruppenmitgliedschaften und Rollen        | `user_id <-> groups_id`, Rolle `owner/admin/member`        |
 | `projects`     | Oberste fachliche Einheit                 | `created_by`, wird von Containern referenziert             |
 | `containers`   | Aufgabenbehälter innerhalb eines Projekts | `project_id`, `created_by`                                 |
-| `tasks`        | Aufgaben                                  | `container_id`, `created_by`, Status, Deadline, Attachment |
+| `tasks`        | Aufgaben                                  | `container_id`, `created_by`, `deleted_by`, Status, Deadline, Attachment |
 | `groups_tasks` | Task-Zuweisungen an Gruppen               | `group_id <-> task_id`                                     |
 | `subtasks`     | Unteraufgaben                             | `task_id`                                                  |
 | `comments`     | Kommentare zu Tasks                       | `task_id`, `user_id`                                       |
@@ -247,8 +257,8 @@ Tasks werden nicht direkt einzelnen Benutzern zugewiesen. Eine direkte Benutzerz
 | Auth          | `register`, `login`, Passwort-Hashing, JWT                                                  | Logout/Token-Sperre, Passwort-Reset, E-Mail-Validierung            |
 | Benutzer      | `create`, `findByEmail`, `findById`, `setPicture`, Profilbild-Upload über `/api/me/picture` | Profil ändern, Benutzer deaktivieren, Bild-Optimierung             |
 | Gruppen       | Gruppen lesen/erstellen, Benutzer hinzufügen, Mitglieder/Gruppen lesen                      | Rollen prüfen, Benutzer entfernen, Gruppe ändern/archivieren       |
-| Tasks         | Erstellen, userbezogen lesen, Einzelansicht, ändern, Soft-Delete                            | Berechtigungen, Statuswechsel, wiederherstellen, Filter/Pagination |
-| Task-Gruppen  | Zuweisen, entfernen, Gruppen einer Task lesen                                               | Duplicate-/Ownership-Prüfung, Transaktionen                        |
+| Tasks         | Erstellen, userbezogen lesen, Einzelansicht, ändern, eigentümergeschütztes Soft-Delete     | Weitere Berechtigungen, Statuswechsel, wiederherstellen, Filter/Pagination |
+| Task-Gruppen  | Zuweisen (Duplikat liefert `409`), entfernen, Gruppen einer Task lesen                      | Ownership-Prüfung, Transaktionen                                    |
 | Projekte      | CRUD über API                                                                               | Archivierung, Zugriffskontrolle, Filterung                         |
 | Container     | CRUD über API                                                                               | Soft-Delete, erweitertes ACL, Sortierung                           |
 | Subtasks      | Nur Datenbanktabelle                                                                        | CRUD, Erledigungsstatus, Reihenfolge                               |
@@ -284,9 +294,10 @@ Diese Routen sind aus dem Datenbankschema abgeleitet und aktuell noch nicht regi
 
 ## Sicherheit und technische To-dos
 
+- `DELETE /api/tasks/{id}` setzt `deleted_at` und `deleted_by`, löscht keine Daten physisch und ist nur für den Ersteller des zugehörigen Containers oder Projekts erlaubt, sofern Container und Projekt aktiv sind. Nicht vorhandene, bereits gelöschte und nicht berechtigte Tasks liefern einheitlich `404`.
 - `GET /api/tasks/{id}` muss dieselbe Gruppenberechtigung wie die Task-Liste prüfen.
 - Schreiboperationen müssen prüfen, ob der Benutzer Mitglied ist und die erforderliche Rolle besitzt.
-- Gruppen- und Task-Zuweisungen müssen Duplikate und nicht vorhandene Fremdschlüssel sauber behandeln.
+- Benutzer-Gruppenzuweisungen müssen Duplikate und nicht vorhandene Fremdschlüssel noch sauber behandeln; doppelte Task-Gruppenzuweisungen liefern `409`, ungültige bzw. nicht vorhandene Task-/Gruppen-IDs `400` bzw. `404`.
 - Fehlermeldungen sollten keine internen Datenbankdetails an Clients ausgeben.
 - Eingabevalidierung, Pagination und Rate-Limiting fehlen noch.
 - Das Schema nutzt für die Entwicklungsphase `DROP DATABASE IF EXISTS`; für Produktion muss eine versionierte Migration ohne destruktives Zurücksetzen verwendet werden.
