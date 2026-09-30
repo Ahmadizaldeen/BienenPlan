@@ -131,7 +131,17 @@ class GroupController
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
 
-        if (!$this->groupModel->assignGroup($taskId, $groupId)) {
+        try {
+            $assigned = $this->groupModel->assignGroup($taskId, $groupId);
+        } catch (\PDOException $exception) {
+            if ($exception->getCode() === '23000' && ($exception->errorInfo[1] ?? null) === 1062) {
+                return $this->jsonResponse($response, ['error' => 'Gruppe ist diesem Task bereits zugeordnet'], 409);
+            }
+
+            throw $exception;
+        }
+
+        if (!$assigned) {
             return $this->jsonResponse($response, ['error' => 'Task oder Gruppe nicht gefunden'], 404);
         }
 
