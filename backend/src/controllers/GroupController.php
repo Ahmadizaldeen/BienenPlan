@@ -131,7 +131,10 @@ class GroupController
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
 
-        $this->groupModel->assignGroup($taskId, $groupId);
+        if (!$this->groupModel->assignGroup($taskId, $groupId)) {
+            return $this->jsonResponse($response, ['error' => 'Task oder Gruppe nicht gefunden'], 404);
+        }
+
         return $this->jsonResponse($response, ['message' => 'Gruppe dem Task zugeordnet'], 201);
     }
 
@@ -144,7 +147,10 @@ class GroupController
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
 
-        $this->groupModel->removeGroup($taskId, $groupId);
+        if (!$this->groupModel->removeGroup($taskId, $groupId)) {
+            return $this->jsonResponse($response, ['error' => 'Task oder Gruppenzuweisung nicht gefunden'], 404);
+        }
+
         return $this->jsonResponse($response, ['message' => 'Gruppe vom Task entfernt']);
     }
 
