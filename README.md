@@ -92,7 +92,7 @@ GET	         /api/tasks	      Alle Aufgaben abrufen
 GET	         /api/tasks/{id}	Einzelne Aufgabe abrufen
 POST	         /api/tasks	      Neue Aufgabe erstellen
 PUT	         /api/tasks/{id}	Aufgabe aktualisieren
-DELETE	      /api/tasks/{id}	Aufgabe löschen
+DELETE	      /api/tasks/{id}	Aufgabe als Container-/Projekt-Eigentümer per Soft-Delete löschen
 
 ⚠️ Aktuell existieren noch keine Endpoints für groups, projects, containers, subtasks und comments — diese Ressourcen sind im DB-Schema bereits angelegt, aber noch nicht über die API erreichbar. Folgt in kommenden Iterationen.
 ## 🏗 Architektur
@@ -187,7 +187,7 @@ Content-Type: application/json
 | `GET`    | `/api/tasks/{id}`                        | Eine nicht gelöschte Task laden                                           |
 | `POST`   | `/api/tasks`                             | Task in einem Container anlegen                                           |
 | `PUT`    | `/api/tasks/{id}`                        | Titel, Beschreibung, Status, Deadline und Attachment aktualisieren        |
-| `DELETE` | `/api/tasks/{id}`                        | Task per Soft-Delete löschen                                              |
+| `DELETE` | `/api/tasks/{id}`                        | Task als Container-/Projekt-Eigentümer per Soft-Delete löschen            |
 | `GET`    | `/api/groups`                            | Alle Gruppen laden                                                        |
 | `POST`   | `/api/groups`                            | Eine Gruppe anlegen (Namen `Personal user …` sind reserviert)             |
 | `POST`   | `/api/groups/{groupId}/addUser/{userId}` | Benutzer einer Gruppe hinzufügen                                          |
@@ -247,7 +247,7 @@ Tasks werden nicht direkt einzelnen Benutzern zugewiesen. Eine direkte Benutzerz
 | Auth          | `register`, `login`, Passwort-Hashing, JWT                                                  | Logout/Token-Sperre, Passwort-Reset, E-Mail-Validierung            |
 | Benutzer      | `create`, `findByEmail`, `findById`, `setPicture`, Profilbild-Upload über `/api/me/picture` | Profil ändern, Benutzer deaktivieren, Bild-Optimierung             |
 | Gruppen       | Gruppen lesen/erstellen, Benutzer hinzufügen, Mitglieder/Gruppen lesen                      | Rollen prüfen, Benutzer entfernen, Gruppe ändern/archivieren       |
-| Tasks         | Erstellen, userbezogen lesen, Einzelansicht, ändern, Soft-Delete                            | Berechtigungen, Statuswechsel, wiederherstellen, Filter/Pagination |
+| Tasks         | Erstellen, userbezogen lesen, Einzelansicht, ändern, eigentümergeschütztes Soft-Delete     | Weitere Berechtigungen, Statuswechsel, wiederherstellen, Filter/Pagination |
 | Task-Gruppen  | Zuweisen, entfernen, Gruppen einer Task lesen                                               | Duplicate-/Ownership-Prüfung, Transaktionen                        |
 | Projekte      | CRUD über API                                                                               | Archivierung, Zugriffskontrolle, Filterung                         |
 | Container     | CRUD über API                                                                               | Soft-Delete, erweitertes ACL, Sortierung                           |
@@ -284,6 +284,7 @@ Diese Routen sind aus dem Datenbankschema abgeleitet und aktuell noch nicht regi
 
 ## Sicherheit und technische To-dos
 
+- `DELETE /api/tasks/{id}` setzt `deleted_at` und `deleted_by`, löscht keine Daten physisch und ist nur für den Eigentümer des zugehörigen Containers oder Projekts erlaubt. Nicht vorhandene, bereits gelöschte und fremde Tasks liefern einheitlich `404`.
 - `GET /api/tasks/{id}` muss dieselbe Gruppenberechtigung wie die Task-Liste prüfen.
 - Schreiboperationen müssen prüfen, ob der Benutzer Mitglied ist und die erforderliche Rolle besitzt.
 - Gruppen- und Task-Zuweisungen müssen Duplikate und nicht vorhandene Fremdschlüssel sauber behandeln.
