@@ -90,14 +90,12 @@ class TaskController {
     // DELETE /api/tasks/{id}
     public function delete(Request $request, Response $response, array $args): Response {
         $id = (int) $args['id'];
-        $userId = $request->getAttribute('user_id');
+        $userId = (int) $request->getAttribute('user_id');
 
-        $existingTask = $this->taskModel->getById($id);
-        if (!$existingTask) {
+        if ($id < 1 || !$this->taskModel->delete($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Task nicht gefunden'], 404);
         }
 
-        $this->taskModel->delete($id, $userId);
         return $this->jsonResponse($response, ['message' => 'Task erfolgreich gelöscht']);
     }
 
