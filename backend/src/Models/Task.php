@@ -141,14 +141,27 @@ class Task {
 
     // DELETE (Soft-Delete)
     public function delete(int $id, int $deletedBy): bool {
-        $sql = "UPDATE tasks 
-                SET deleted_at = NOW(), deleted_by = :deleted_by 
-                WHERE id = :id AND deleted_at IS NULL";
+        $sql = "UPDATE tasks t
+                JOIN containers c ON c.id = t.container_id
+                JOIN projects p ON p.id = c.project_id
+                SET t.deleted_at = NOW(), t.deleted_by = :deleted_by
+                WHERE t.id = :id
+                  AND t.deleted_at IS NULL
+                  AND c.deleted_at IS NULL
+                  AND p.archived_at IS NULL
+                  AND (
+                    c.created_by = :container_owner_id
+                    OR p.created_by = :project_owner_id
+                  )";
 
         $stmt = $this->pdo->prepare($sql);
-        return $stmt->execute([
+        $stmt->execute([
             'id'         => $id,
-            'deleted_by' => $deletedBy
+            'deleted_by' => $deletedBy,
+            'container_owner_id' => $deletedBy,
+            'project_owner_id' => $deletedBy,
         ]);
+
+        return $stmt->rowCount() === 1;
     }
 }
