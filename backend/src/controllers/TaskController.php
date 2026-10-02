@@ -117,6 +117,6 @@ class TaskController {
 
     // POST /api/tasks/{id}/attachment (multipart/form-data, Feld: "file")
     public function uploadAttachment(Request $request, Response $response, array $args): Response {
-        return $this->attachmentController->upload($request, $response, $args);
+        return $this->attachmentController->uploadLegacy($request, $response, $args);
     }
 }
