@@ -104,6 +104,24 @@ CREATE TABLE tasks (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
+-- TASK_ATTACHMENTS
+-- ============================================
+CREATE TABLE task_attachments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    task_id INT NOT NULL,
+    uploaded_by INT NULL,
+    original_name VARCHAR(255) NOT NULL,
+    stored_name VARCHAR(255) NOT NULL UNIQUE,
+    mime_type VARCHAR(100) NOT NULL,
+    size_bytes INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL,
+    INDEX idx_task_attachments_task (task_id, deleted_at),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
 -- GROUPS_TASKS (n:m) an Task können nur Gruppen zugeordnet. einzelne Users werden über die Gruppen zugeordnet.
 -- ============================================
 CREATE TABLE groups_tasks ( 
