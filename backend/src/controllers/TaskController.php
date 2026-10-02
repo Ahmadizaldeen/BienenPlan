@@ -5,18 +5,15 @@ namespace BienenPlan\Controllers;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use BienenPlan\Models\Task;
-use BienenPlan\Services\FileValidationService;
 
 class TaskController {
     private Task $taskModel;
-    private FileValidationService $fileValidationService;
 
     public function __construct(
         Task $taskModel,
-        ?FileValidationService $fileValidationService = null,
+        private TaskAttachmentController $attachmentController,
     ) {
         $this->taskModel = $taskModel; # Dependency Injection, Task in TaskController verfügbar machen
-        $this->fileValidationService = $fileValidationService ?? new FileValidationService();
     }
 
     // Helper für JSON-Antworten
@@ -120,61 +117,6 @@ class TaskController {
 
     // POST /api/tasks/{id}/attachment (multipart/form-data, Feld: "file")
     public function uploadAttachment(Request $request, Response $response, array $args): Response {
-        $id = (int) $args['id'];
-
-        $existingTask = $this->taskModel->getById($id);
-        if (!$existingTask) {
-            return $this->jsonResponse($response, ['error' => 'Task nicht gefunden'], 404);
-        }
-
-        $uploadedFiles = $request->getUploadedFiles();
-        $file = $uploadedFiles['file'] ?? null;
-
-        if (!$file) {
-            return $this->jsonResponse($response, ['error' => 'Keine gültige Datei hochgeladen'], 400);
-        }
-
-        try {
-            $validation = $this->fileValidationService->validate(
-                $file,
-                [
-                    'pdf' => ['application/pdf'],
-                    'png' => ['image/png'],
-                    'jpg' => ['image/jpeg'],
-                    'jpeg' => ['image/jpeg'],
-                    'gif' => ['image/gif'],
-                    'docx' => [
-                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                        'application/zip',
-                    ],
-                    'xlsx' => [
-                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                        'application/zip',
-                    ],
-                    'txt' => ['text/plain'],
-                ],
-                10 * 1024 * 1024,
-            );
-        } catch (\InvalidArgumentException $exception) {
-            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 400);
-        }
-
-        $extension = $validation['extension'];
-
-        $uploadDir = __DIR__ . '/../../public/uploads/tasks';
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        $safeName = sprintf('%d_%s.%s', $id, bin2hex(random_bytes(8)), $extension);
-        $file->moveTo($uploadDir . '/' . $safeName);
-
-        $relativePath = 'uploads/tasks/' . $safeName;
-        $this->taskModel->updateAttachment($id, $relativePath);
-
-        return $this->jsonResponse($response, [
-            'message' => 'Anhang erfolgreich hochgeladen',
-            'attachment' => $relativePath,
-        ]);
+        return $this->attachmentController->uploadLegacy($request, $response, $args);
     }
 }

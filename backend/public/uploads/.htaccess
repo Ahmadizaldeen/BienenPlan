@@ -3,3 +3,7 @@
     # benötigt deshalb CORS auch für statisch von Apache gelieferte Bilder.
     Header always set Access-Control-Allow-Origin "*"
 </IfModule>
+
+# Task-Anhänge dürfen nur über den authentifizierten API-Endpunkt gelesen werden.
+RewriteEngine On
+RewriteRule ^tasks/ - [F,L]

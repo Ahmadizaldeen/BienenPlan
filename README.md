@@ -157,6 +157,8 @@ mysql -u root -p bienenplan < data/sql/migrations/001_add_task_soft_delete_metad
 
 Die Migration ist wiederholbar. `000_schema.sql` setzt die Entwicklungsdatenbank hingegen zurück (`DROP DATABASE`); nicht zum Aktualisieren einer bestehenden Datenbank verwenden.
 
+Für Mehrfach-Anhänge auf einer bestehenden Datenbank anschließend `backend/data/sql/migrations/002_add_task_attachments.sql` ausführen. Sie übernimmt bereits hochgeladene Einzelanhänge aus `tasks.attachment` in die neue Tabelle; früher als Text eingegebene externe URLs sind keine hochgeladenen Dateien und werden nicht übernommen. Bestehende Dateien unter `public/uploads/tasks/` müssen auf dem Server erhalten bleiben. Apache muss `.htaccess` auswerten, damit weder alte Task-Dateien noch neue Dateien im Verzeichnis `backend/storage/` direkt über HTTP zugänglich sind. Die neue Tabelle ist im frischen Schema bereits enthalten.
+
 Optional Testdaten laden:
 
 ```powershell
@@ -194,8 +196,12 @@ Content-Type: application/json
 | `GET`    | `/api/tasks`                             | Tasks des angemeldeten Benutzers über seine Gruppenmitgliedschaften laden |
 | `GET`    | `/api/tasks/{id}`                        | Eine nicht gelöschte Task laden                                           |
 | `POST`   | `/api/tasks`                             | Task in einem Container anlegen                                           |
-| `PUT`    | `/api/tasks/{id}`                        | Titel, Beschreibung, Status, Deadline und Attachment aktualisieren        |
+| `PUT`    | `/api/tasks/{id}`                        | Titel, Beschreibung, Status und Deadline aktualisieren                    |
 | `DELETE` | `/api/tasks/{id}`                        | Task als Container-/Projekt-Eigentümer per Soft-Delete löschen            |
+| `GET`    | `/api/tasks/{id}/attachments`            | Hochgeladene Dateien auflisten (inkl. `can_delete`)                       |
+| `POST`   | `/api/tasks/{id}/attachments`            | Mehrere Dateien als `multipart/form-data`, Feld `files[]`, hochladen      |
+| `GET`    | `/api/tasks/{id}/attachments/{attachmentId}/download` | Datei authentifiziert herunterladen                    |
+| `DELETE` | `/api/tasks/{id}/attachments/{attachmentId}` | Datei als Uploader oder Projekt-Eigentümer löschen                     |
 | `GET`    | `/api/groups`                            | Alle Gruppen laden                                                        |
 | `POST`   | `/api/groups`                            | Eine Gruppe anlegen (Namen `Personal user …` sind reserviert)             |
 | `POST`   | `/api/groups/{groupId}/addUser/{userId}` | Benutzer einer Gruppe hinzufügen                                          |
@@ -224,6 +230,8 @@ Gruppen-Listen (`/api/groups`, `/api/tasks/{taskId}/groups`, `/api/users/{userId
 
 Die Einzelabfrage `GET /api/tasks/{id}` prüft aktuell nur die Task-ID und den Soft-Delete-Status. Eine Berechtigungsprüfung anhand der Benutzergruppen ist als Sicherheits-Meilenstein vorgesehen.
 
+Anhang-Endpunkte prüfen dagegen die Berechtigung: Container- und Projekt-Eigentümer sowie Mitglieder zugewiesener Gruppen können Dateien ansehen und hochladen; nur der jeweilige Uploader oder Projekt-Eigentümer kann löschen. Es gelten dieselben Dateitypen wie beim bisherigen Upload (`pdf`, `png`, `jpg`, `jpeg`, `gif`, `docx`, `xlsx`, `txt`) und 10 MB pro Datei. Bei ungültiger Datei wird der gesamte Mehrfach-Upload abgelehnt. `POST /api/tasks/{id}/attachment` mit Feld `file` bleibt als kompatibler Einzel-Upload verfügbar und erzeugt ebenfalls einen neuen Eintrag, statt den bisherigen zu überschreiben. PHP-Limits `post_max_size`, `upload_max_filesize` und `max_file_uploads` müssen für den gewünschten Mehrfach-Upload passend konfiguriert sein.
+
 Gruppenzuweisungen sind nur für vorhandene, nicht gelöschte Tasks und vorhandene Gruppen möglich. Ungültige IDs führen zu `400`, nicht vorhandene Tasks oder Gruppen zu `404`. Wird dieselbe Gruppe einem Task erneut zugewiesen, antwortet `POST /api/tasks/{taskId}/assign/{groupId}` mit `409 Conflict` und `{ "error": "Gruppe ist diesem Task bereits zugeordnet" }`; die bestehende Zuordnung bleibt unverändert.
 
 ## Datenmodell
@@ -235,7 +243,8 @@ Gruppenzuweisungen sind nur für vorhandene, nicht gelöschte Tasks und vorhande
 | `users_groups` | Gruppenmitgliedschaften und Rollen        | `user_id <-> groups_id`, Rolle `owner/admin/member`        |
 | `projects`     | Oberste fachliche Einheit                 | `created_by`, wird von Containern referenziert             |
 | `containers`   | Aufgabenbehälter innerhalb eines Projekts | `project_id`, `created_by`                                 |
-| `tasks`        | Aufgaben                                  | `container_id`, `created_by`, `deleted_by`, Status, Deadline, Attachment |
+| `tasks`        | Aufgaben                                  | `container_id`, `created_by`, `deleted_by`, Status, Deadline, bisheriges Attachment-Feld (nur Altbestand) |
+| `task_attachments` | Hochgeladene Task-Dateien             | `task_id`, `uploaded_by`, Originalname, Speichername                      |
 | `groups_tasks` | Task-Zuweisungen an Gruppen               | `group_id <-> task_id`                                     |
 | `subtasks`     | Unteraufgaben                             | `task_id`                                                  |
 | `comments`     | Kommentare zu Tasks                       | `task_id`, `user_id`                                       |
