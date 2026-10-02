@@ -13,8 +13,8 @@ class Task {
 
     // CREATE
     public function create(array $data): int {
-        $sql = "INSERT INTO tasks (container_id, created_by, title, description, status, deadline, attachment) 
-                VALUES (:container_id, :created_by, :title, :description, :status, :deadline, :attachment)";
+        $sql = "INSERT INTO tasks (container_id, created_by, title, description, status, deadline)
+                VALUES (:container_id, :created_by, :title, :description, :status, :deadline)";
         
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
@@ -23,8 +23,7 @@ class Task {
             'title'        => $data['title'],
             'description'  => $data['description'] ?? null,
             'status'       => $data['status'] ?? 'open',
-            'deadline'     => $data['deadline'] ?? null,
-            'attachment'   => $data['attachment'] ?? null
+            'deadline'     => $data['deadline'] ?? null
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -111,21 +110,13 @@ class Task {
         return $stmt->execute(['id' => $id, 'status' => $status]);
     }
 
-    // UPDATE nur Anhang (nach Datei-Upload)
-    public function updateAttachment(int $id, string $attachment): bool {
-        $sql = "UPDATE tasks SET attachment = :attachment WHERE id = :id AND deleted_at IS NULL";
-        $stmt = $this->pdo->prepare($sql);
-        return $stmt->execute(['id' => $id, 'attachment' => $attachment]);
-    }
-
     // UPDATE
     public function update(int $id, array $data): bool {
         $sql = "UPDATE tasks 
                 SET title = :title, 
                     description = :description, 
                     status = :status, 
-                    deadline = :deadline, 
-                    attachment = :attachment 
+                    deadline = :deadline
                 WHERE id = :id AND deleted_at IS NULL";
 
         $stmt = $this->pdo->prepare($sql);
@@ -134,8 +125,7 @@ class Task {
             'title'       => $data['title'],
             'description' => $data['description'] ?? null,
             'status'      => $data['status'] ?? 'open',
-            'deadline'    => $data['deadline'] ?? null,
-            'attachment'  => $data['attachment'] ?? null
+            'deadline'    => $data['deadline'] ?? null
         ]);
     }
 
