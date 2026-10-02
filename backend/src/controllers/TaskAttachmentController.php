@@ -50,7 +50,11 @@ class TaskAttachmentController {
         ));
     }
 
-    public function upload(Request $request, Response $response, array $args): Response {
+    public function uploadLegacy(Request $request, Response $response, array $args): Response {
+        return $this->upload($request, $response, $args, true);
+    }
+
+    public function upload(Request $request, Response $response, array $args, bool $legacyResponse = false): Response {
         if (!$this->task($request, $args)) {
             return $this->json($response, ['error' => 'Task nicht gefunden'], 404);
         }
@@ -116,6 +120,17 @@ class TaskAttachmentController {
             ),
             static fn(array $item): bool => in_array((int) $item['id'], $ids, true)
         ));
+        if ($legacyResponse) {
+            $attachment = $items[0] ?? null;
+            return $this->json($response, [
+                'message' => 'Anhang erfolgreich hochgeladen',
+                'attachment' => sprintf(
+                    'api/tasks/%d/attachments/%d/download',
+                    (int) $args['id'],
+                    (int) $attachment['id']
+                ),
+            ], 201);
+        }
         return $this->json($response, ['attachments' => $items], 201);
     }
 
