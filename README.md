@@ -36,7 +36,7 @@ Der aktuelle Backend-Stand umfasst:
 - Profilbild-Upload für den authentifizierten Benutzer
 - CORS- und Auth-Middleware
 
-Aktuell in der API umgesetzt sind vor allem Auth, Benutzerprofil, Gruppen, Tasks, Projekte und Container. Subtasks und Kommentare sind im Schema vorhanden, aber noch nicht vollständig als API-Endpunkte umgesetzt.
+Aktuell in der API umgesetzt sind Auth, Benutzerprofil, Gruppen, Tasks, Projekte, Container und Subtasks. Kommentare sind bisher nur im Schema vorhanden.
 
 ## Technologie
 
@@ -94,7 +94,7 @@ POST	         /api/tasks	      Neue Aufgabe erstellen
 PUT	         /api/tasks/{id}	Aufgabe aktualisieren
 DELETE	      /api/tasks/{id}	Aufgabe als Container-/Projekt-Eigentümer per Soft-Delete löschen
 
-Gruppen-, Projekt- und Container-Endpunkte sind teilweise umgesetzt und unten aufgeführt. Subtasks und Kommentare sind derzeit nur im Datenbankschema vorhanden und noch nicht als API-Endpunkte verfügbar.
+Gruppen-, Projekt-, Container- und Subtask-Endpunkte sind unten aufgeführt. Kommentare sind derzeit nur im Datenbankschema vorhanden.
 ## 🏗 Architektur
 
 Flutter App
@@ -159,6 +159,14 @@ Die Migration ist wiederholbar. `000_schema.sql` setzt die Entwicklungsdatenbank
 
 Für Mehrfach-Anhänge auf einer bestehenden Datenbank anschließend `backend/data/sql/migrations/002_add_task_attachments.sql` ausführen. Sie übernimmt bereits hochgeladene Einzelanhänge aus `tasks.attachment` in die neue Tabelle; früher als Text eingegebene externe URLs sind keine hochgeladenen Dateien und werden nicht übernommen. Bestehende Dateien unter `public/uploads/tasks/` müssen auf dem Server erhalten bleiben. Apache muss `.htaccess` auswerten, damit weder alte Task-Dateien noch neue Dateien im Verzeichnis `backend/storage/` direkt über HTTP zugänglich sind. Die neue Tabelle ist im frischen Schema bereits enthalten.
 
+Für Subtasks auf einer bestehenden Datenbank einmalig
+`backend/data/sql/migrations/003_add_subtask_permissions.sql` in der konfigurierten
+Datenbank ausführen. Die Migration ergänzt `created_by`, `deleted_at`, `deleted_by`
+und einen Index samt Fremdschlüsseln, ohne bestehende Subtasks zu löschen.
+Sie ist nicht wiederholbar; auf einem frisch importierten `000_schema.sql` ist sie
+nicht erforderlich. Alte Subtasks behalten `created_by = NULL` und können von
+Container-/Projekt-Eigentümern verwaltet werden.
+
 Optional Testdaten laden:
 
 ```powershell
@@ -198,6 +206,10 @@ Content-Type: application/json
 | `POST`   | `/api/tasks`                             | Task in einem Container anlegen                                           |
 | `PUT`    | `/api/tasks/{id}`                        | Titel, Beschreibung, Status und Deadline aktualisieren                    |
 | `DELETE` | `/api/tasks/{id}`                        | Task als Container-/Projekt-Eigentümer per Soft-Delete löschen            |
+| `GET`    | `/api/tasks/{taskId}/subtasks`             | Aktive Subtasks und Berechtigungen laden                                  |
+| `POST`   | `/api/tasks/{taskId}/subtasks`             | Subtask als Container-/Projekt-Eigentümer erstellen                       |
+| `PUT`    | `/api/tasks/{taskId}/subtasks/{subtaskId}`  | Titel und/oder completed aktualisieren                                   |
+| `DELETE` | `/api/tasks/{taskId}/subtasks/{subtaskId}`  | Subtask per Soft-Delete löschen                                           |
 | `GET`    | `/api/tasks/{id}/attachments`            | Hochgeladene Dateien auflisten (inkl. `can_delete`)                       |
 | `POST`   | `/api/tasks/{id}/attachments`            | Mehrere Dateien als `multipart/form-data`, Feld `files[]`, hochladen      |
 | `GET`    | `/api/tasks/{id}/attachments/{attachmentId}/download` | Datei authentifiziert herunterladen                    |
@@ -223,6 +235,28 @@ Content-Type: application/json
 | `DELETE` | `/api/containers/{id}`                   | Container löschen                                                         |
 
 Gruppen-Listen (`/api/groups`, `/api/tasks/{taskId}/groups`, `/api/users/{userId}/groups`) liefern je Gruppe `id`, `name`, `personal_user_id`, `personal_user_name` und `created_at`. Bei persönlichen Gruppen enthält `personal_user_name` den Benutzernamen (sonst `null`), sodass kein Zusatz-Request pro Gruppe nötig ist.
+
+### Subtasks
+
+`GET /api/tasks/{taskId}/subtasks` liefert `{ "can_create": true, "subtasks": [...] }`,
+nach ID sortiert. Ein Subtask enthält `id`, `task_id`, `title`, `completed`,
+`created_by`, `can_edit`, `can_delete` und `can_complete`; Status und Berechtigungen
+sind JSON-Booleans. `POST` erwartet `{ "title": "Schritt" }` und liefert den neuen
+Subtask mit `201`. `PUT` akzeptiert nur die übergebenen Felder `title` und/oder
+`completed` und liefert den aktualisierten Subtask mit `200`.
+
+Titel müssen nach dem Trimmen 1 bis 100 Unicode-Codepoints enthalten.
+Container-/Projekt-Eigentümer dürfen erstellen. Umbenennen und Löschen dürfen
+zusätzlich die jeweiligen Subtask-Ersteller, solange sie noch Zugriff auf die
+Aufgabe haben. Mitglieder zugewiesener Gruppen dürfen abhaken, aber fremde
+Subtasks nicht umbenennen oder löschen. Alle Rechte werden im Backend geprüft,
+auch bei kombinierten Änderungsrequests. Fehlende Ressourcen oder fehlender
+Task-Zugriff liefern `404`, verbotene Aktionen `403`, ungültige Daten `400`.
+
+`DELETE` setzt `deleted_at` und `deleted_by` und liefert mit `200` eine
+Erfolgsmeldung. Bei gelöschten Aufgaben/Containern oder archivierten Projekten
+sind Subtasks nicht verfügbar. Der Hauptaufgabenstatus wird nicht verändert.
+Regressionstest: `php backend/tests/SubtasksTest.php` (PDO SQLite erforderlich).
 
 ### Aktuelle Task-Sichtbarkeit
 
