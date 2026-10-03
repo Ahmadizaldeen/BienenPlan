@@ -22,6 +22,10 @@ class ApiController
                 'POST /api/tasks' => 'Aufgabe erstellen',
                 'PUT /api/tasks/{id}' => 'Aufgabe aktualisieren',
                 'DELETE /api/tasks/{id}' => 'Aufgabe löschen',
+                'GET /api/tasks/{taskId}/subtasks' => 'Teilaufgaben und Berechtigungen abrufen',
+                'POST /api/tasks/{taskId}/subtasks' => 'Teilaufgabe erstellen',
+                'PUT /api/tasks/{taskId}/subtasks/{subtaskId}' => 'Teilaufgabe bearbeiten oder abhaken',
+                'DELETE /api/tasks/{taskId}/subtasks/{subtaskId}' => 'Teilaufgabe per Soft-Delete löschen',
             ]
         ];
 
