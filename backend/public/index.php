@@ -9,6 +9,8 @@ use BienenPlan\Config\Database;
 use BienenPlan\Models\User;
 use BienenPlan\Models\Task;
 use BienenPlan\Models\TaskAttachment;
+use BienenPlan\Models\Subtask;
+use BienenPlan\Controllers\SubtaskController;
 use BienenPlan\Models\Project;
 use BienenPlan\Models\Container;
 
@@ -37,6 +39,7 @@ try{
     $userModel = new User($pdo);
     $taskModel = new Task($pdo);
     $taskAttachmentModel = new TaskAttachment($pdo);
+    $subtaskController = new SubtaskController(new Subtask($pdo));
     $groupModel = new Group($pdo);
     $projectModel = new Project($pdo);
     $containerModel = new Container($pdo);
@@ -84,7 +87,7 @@ $app->get('/api', [$apiController, 'index']);
 $app->get('/', [$apiController, 'index']); # Setup Route
 // Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
-$app->group('/api', function ($group) use ($taskController, $attachmentController, $groupController, $projectController, $containerController, $authController, $userController) {
+$app->group('/api', function ($group) use ($taskController, $attachmentController, $subtaskController, $groupController, $projectController, $containerController, $authController, $userController) {
     $group->get('/me', [$authController, 'me']);
     $group->post('/me/picture', [$userController, 'uploadPicture']);
     $group->get('/users', [$userController, 'getAll']);
@@ -100,6 +103,10 @@ $app->group('/api', function ($group) use ($taskController, $attachmentControlle
     $group->post('/tasks/{id}/attachments', [$attachmentController, 'upload']);
     $group->get('/tasks/{id}/attachments/{attachmentId}/download', [$attachmentController, 'download']);
     $group->delete('/tasks/{id}/attachments/{attachmentId}', [$attachmentController, 'delete']);
+    $group->get('/tasks/{taskId}/subtasks', [$subtaskController, 'index']);
+    $group->post('/tasks/{taskId}/subtasks', [$subtaskController, 'create']);
+    $group->put('/tasks/{taskId}/subtasks/{subtaskId}', [$subtaskController, 'update']);
+    $group->delete('/tasks/{taskId}/subtasks/{subtaskId}', [$subtaskController, 'delete']);
 
     // Gruppen-Routen
     $group->get('/groups', [$groupController, 'getAllGroups']);

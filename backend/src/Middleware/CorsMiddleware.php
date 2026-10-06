@@ -32,7 +32,7 @@ class CorsMiddleware implements MiddlewareInterface { # Preflight prüfen und we
             ->withHeader('Access-Control-Allow-Origin', '*')
             ->withHeader(
                 'Access-Control-Allow-Headers',
-                'X-Requested-With, Content-Type, Accept, Origin, Authorization'
+                'X-Requested-With, Content-Type, Accept, Origin, Authorization, ngrok-skip-browser-warning'
             )
             ->withHeader(
                 'Access-Control-Allow-Methods',

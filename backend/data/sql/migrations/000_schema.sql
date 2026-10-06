@@ -140,7 +140,13 @@ CREATE TABLE subtasks (
     task_id   INT NOT NULL,
     title     VARCHAR(100) NOT NULL,
     completed BOOLEAN NOT NULL DEFAULT FALSE,
-    FOREIGN KEY (task_id) REFERENCES tasks(id)
+    created_by INT NULL,
+    deleted_at DATETIME NULL,
+    deleted_by INT NULL,
+    INDEX idx_subtasks_task_deleted (task_id, deleted_at),
+    FOREIGN KEY (task_id) REFERENCES tasks(id),
+    CONSTRAINT fk_subtasks_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_subtasks_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE comments (
