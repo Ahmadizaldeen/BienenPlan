@@ -24,13 +24,15 @@
 namespace BienenPlan\Models;
 
 use PDO;
+use BienenPlan\Services\AccessService;
 
 class Group
 {
     // Gemeinsame Spalten + JOIN für alle Gruppen-Listen, damit das Frontend den
     // Benutzernamen persönlicher Gruppen ohne Zusatz-Request pro Gruppe erhält.
     // Gleiche Regel wie resolvePersonalUserId(): FK vor Namens-Fallback ("Personal user {id}", 14 Zeichen Präfix).
-    private const GROUP_COLUMNS = "g.id, g.name, g.personal_user_id, pu.name AS personal_user_name, g.created_at";
+    private const GROUP_COLUMNS = "g.id, g.name, g.personal_user_id, g.project_id, g.is_global,
+                pu.name AS personal_user_name, g.created_at";
     private const PERSONAL_USER_JOIN = "LEFT JOIN users pu
                 ON pu.deleted_at IS NULL
                AND pu.id = COALESCE(
@@ -46,14 +48,21 @@ class Group
     }
 
     //GET all groups
-    public function getAllGroups(): array
+    public function access(): AccessService
+    {
+        return new AccessService($this->pdo);
+    }
+
+    public function getAllGroups(int $userId): array
     {
         $sql = "SELECT " . self::GROUP_COLUMNS . "
                 FROM groups g
+                " . AccessService::ACTOR_JOIN . "
                 " . self::PERSONAL_USER_JOIN . "
+                WHERE " . AccessService::GROUP_VIEW_SQL . "
                 ORDER BY g.name";
         $statement = $this->pdo->prepare($sql);
-        $statement->execute();
+        $statement->execute(['access_user' => $userId]);
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -62,20 +71,24 @@ class Group
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare(
-                "INSERT INTO groups (name) VALUES (:name)"
+                "INSERT INTO groups (name, is_global) VALUES (:name, 1)"
             );
             $stmt->execute(['name' => $name]);
             $groupId = (int) $this->pdo->lastInsertId();
 
             if ($userIds !== []) {
                 $membership = $this->pdo->prepare(
-                    "INSERT INTO users_groups (user_id, groups_id) VALUES (:user_id, :group_id)"
+                    "INSERT INTO users_groups (user_id, groups_id)
+                     SELECT id, :group_id FROM users WHERE id = :user_id AND deleted_at IS NULL"
                 );
                 foreach ($userIds as $userId) {
                     $membership->execute([
                         'user_id' => $userId,
                         'group_id' => $groupId,
                     ]);
+                    if ($membership->rowCount() !== 1) {
+                        throw new \InvalidArgumentException('Benutzer nicht gefunden');
+                    }
                 }
             }
 
@@ -96,9 +109,12 @@ class Group
                 FROM groups g
                 JOIN groups_tasks gt ON gt.group_id = g.id
                 JOIN tasks t ON t.id = gt.task_id
+                JOIN containers c ON c.id = t.container_id
+                LEFT JOIN projects_groups pg ON pg.project_id = c.project_id AND pg.group_id = g.id
                 " . self::PERSONAL_USER_JOIN . "
                 WHERE gt.task_id = :task_id
                   AND t.deleted_at IS NULL
+                  AND " . TaskAccess::ASSIGNED_GROUP_SQL . "
                 ORDER BY g.name";
 
         $statement = $this->pdo->prepare($sql);
@@ -107,10 +123,11 @@ class Group
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
     //POST: Add a user to a group 
-    public function addUserToGroup(int $userId, int $groupId): bool # TODO : handle duplicate (Vergleich mit getGroupsForTask)
+    public function addUserToGroup(int $userId, int $groupId): bool
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO users_groups (user_id, groups_id) VALUES (:user_id, :groups_id)"
+            "INSERT INTO users_groups (user_id, groups_id)
+             SELECT id, :groups_id FROM users WHERE id = :user_id AND deleted_at IS NULL"
         );
         $stmt->execute([
             'user_id' => $userId,
@@ -126,14 +143,21 @@ class Group
             "INSERT INTO groups_tasks (task_id, group_id)
              SELECT t.id, g.id
              FROM tasks t
+                         JOIN containers c ON c.id = t.container_id
+             JOIN projects p ON p.id = c.project_id
+             LEFT JOIN projects_groups pg ON pg.project_id = c.project_id AND pg.group_id = :project_group_id
              JOIN groups g ON g.id = :group_id
              WHERE t.id = :task_id
-               AND t.deleted_at IS NULL"
+               AND t.deleted_at IS NULL
+               AND c.deleted_at IS NULL AND p.archived_at IS NULL
+               AND pg.group_id IS NOT NULL AND g.personal_user_id IS NULL
+               AND (g.is_global = 1 OR g.project_id = p.id)"
         );
 
         $statement->execute([
             'task_id' => $taskId,
-            'group_id' => $groupId
+            'group_id' => $groupId,
+            'project_group_id' => $groupId,
         ]);
 
         return $statement->rowCount() === 1;
@@ -157,6 +181,13 @@ class Group
         return $statement->rowCount() > 0;
     }
 
+    public function removeUserFromGroup(int $userId, int $groupId): bool
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM users_groups WHERE user_id = :user_id AND groups_id = :group_id');
+        $stmt->execute(['user_id' => $userId, 'group_id' => $groupId]);
+        return $stmt->rowCount() === 1;
+    }
+
     // GET all users for a specific group
     // Der frühere JOIN auf `groups` war überflüssig: groups_id liegt bereits in users_groups.
     public function getUsersInGroup(int $groupId): array
@@ -165,6 +196,7 @@ class Group
                 FROM users u
                 JOIN users_groups ug ON ug.user_id = u.id
                 WHERE ug.groups_id = :group_id
+                  AND u.deleted_at IS NULL
                 ORDER BY u.name";
 
         $statement = $this->pdo->prepare($sql);
@@ -204,7 +236,7 @@ class Group
     public function findGroupById(int $groupId): array|false
     {
         $statement = $this->pdo->prepare(
-            "SELECT id, name, personal_user_id, created_at FROM groups WHERE id = :group_id"
+            "SELECT id, name, personal_user_id, project_id, is_global, created_at FROM groups WHERE id = :group_id"
         );
         $statement->execute(['group_id' => $groupId]);
         return $statement->fetch(PDO::FETCH_ASSOC);
@@ -212,17 +244,19 @@ class Group
 
     // GET all groups for a specific user
     // JOIN auf `users` (Filter) entfernt; Spalten/JOIN wie bei den anderen Gruppen-Listen.
-    public function getGroupsForUser(int $userId): array
+    public function getGroupsForUser(int $userId, int $viewerId): array
     {
         $sql = "SELECT " . self::GROUP_COLUMNS . "
                 FROM groups g
                 JOIN users_groups ug ON ug.groups_id = g.id
+                " . AccessService::ACTOR_JOIN . "
                 " . self::PERSONAL_USER_JOIN . "
                 WHERE ug.user_id = :user_id
+                  AND " . AccessService::GROUP_VIEW_SQL . "
                 ORDER BY g.name";
 
         $statement = $this->pdo->prepare($sql);
-        $statement->execute(['user_id' => $userId]);
+        $statement->execute(['user_id' => $userId, 'access_user' => $viewerId]);
 
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }

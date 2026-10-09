@@ -55,8 +55,12 @@ class TaskAttachmentController {
     }
 
     public function upload(Request $request, Response $response, array $args, bool $legacyResponse = false): Response {
-        if (!$this->task($request, $args)) {
+        $task = $this->task($request, $args);
+        if (!$task) {
             return $this->json($response, ['error' => 'Task nicht gefunden'], 404);
+        }
+        if (!$task['can_write']) {
+            return $this->json($response, ['error' => 'Archivierte Projekte sind schreibgeschuetzt'], 403);
         }
         $uploaded = $request->getUploadedFiles();
         $files = $uploaded['files'] ?? $uploaded['file'] ?? null;
@@ -180,7 +184,7 @@ class TaskAttachmentController {
             return $this->json($response, ['error' => 'Anhang nicht gefunden'], 404);
         }
         $userId = (int) $request->getAttribute('user_id');
-        if ($userId !== (int) $attachment['uploaded_by'] && $userId !== (int) $task['project_owner']) {
+        if (!$this->attachments->access()->canDeleteAttachment($task, $attachment, $userId)) {
             return $this->json($response, ['error' => 'Keine Berechtigung zum Löschen'], 403);
         }
         $this->attachments->remove((int) $args['id'], (int) $args['attachmentId']);

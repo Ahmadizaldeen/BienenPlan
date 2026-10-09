@@ -3,48 +3,33 @@
 namespace BienenPlan\Models;
 
 use PDO;
+use BienenPlan\Services\AccessService;
 
 class TaskAttachment {
     public function __construct(private PDO $pdo) {}
 
     public function accessibleTask(int $taskId, int $userId): ?array {
-        $stmt = $this->pdo->prepare(
-            'SELECT t.id, p.created_by AS project_owner
-             FROM tasks t
-             JOIN containers c ON c.id = t.container_id
-             JOIN projects p ON p.id = c.project_id
-             WHERE t.id = :task_id AND t.deleted_at IS NULL
-               AND c.deleted_at IS NULL AND p.archived_at IS NULL
-               AND (c.created_by = :container_owner OR p.created_by = :project_owner
-                    OR EXISTS (
-                        SELECT 1 FROM groups_tasks gt
-                        JOIN users_groups ug ON ug.groups_id = gt.group_id
-                        WHERE gt.task_id = t.id AND ug.user_id = :member
-                    ))'
-        );
-        $stmt->execute([
-            'task_id' => $taskId,
-            'container_owner' => $userId,
-            'project_owner' => $userId,
-            'member' => $userId,
-        ]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        return (new AccessService($this->pdo))->accessibleTask($userId, $taskId);
+    }
+
+    public function access(): AccessService {
+        return new AccessService($this->pdo);
     }
 
     public function byTask(int $taskId, int $userId, int $projectOwner): array {
         $stmt = $this->pdo->prepare(
-            'SELECT id, task_id, uploaded_by, original_name, mime_type, size_bytes, created_at,
-                    (uploaded_by = :uploader OR :owner_id = :project_owner) AS can_delete
+            'SELECT id, task_id, uploaded_by, original_name, mime_type, size_bytes, created_at
              FROM task_attachments
              WHERE task_id = :task_id AND deleted_at IS NULL ORDER BY created_at, id'
         );
-        $stmt->execute([
-            'task_id' => $taskId,
-            'uploader' => $userId,
-            'owner_id' => $userId,
-            'project_owner' => $projectOwner,
-        ]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt->execute(['task_id' => $taskId]);
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $access = $this->access();
+        $task = $access->accessibleTask($userId, $taskId);
+        foreach ($items as &$item) {
+            $item['can_delete'] = $task !== null && $access->canDeleteAttachment($task, $item, $userId);
+        }
+        return $items;
     }
 
     public function byId(int $taskId, int $id): ?array {

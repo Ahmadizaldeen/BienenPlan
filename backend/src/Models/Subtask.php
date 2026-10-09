@@ -3,28 +3,17 @@
 namespace BienenPlan\Models;
 
 use PDO;
+use BienenPlan\Services\AccessService;
 
 class Subtask {
     public function __construct(private PDO $pdo) {}
 
     public function accessibleTask(int $taskId, int $userId): ?array {
-        $stmt = $this->pdo->prepare(
-            'SELECT t.id, c.created_by AS container_owner, p.created_by AS project_owner
-             FROM tasks t
-             JOIN containers c ON c.id = t.container_id
-             JOIN projects p ON p.id = c.project_id
-             WHERE t.id = :task_id AND t.deleted_at IS NULL
-               AND c.deleted_at IS NULL AND p.archived_at IS NULL
-               AND (c.created_by = :container_owner OR p.created_by = :project_owner
-                    OR EXISTS (SELECT 1 FROM groups_tasks gt
-                        JOIN users_groups ug ON ug.groups_id = gt.group_id
-                        WHERE gt.task_id = t.id AND ug.user_id = :member))'
-        );
-        $stmt->execute([
-            'task_id' => $taskId, 'container_owner' => $userId,
-            'project_owner' => $userId, 'member' => $userId,
-        ]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        return (new AccessService($this->pdo))->accessibleTask($userId, $taskId);
+    }
+
+    public function access(): AccessService {
+        return new AccessService($this->pdo);
     }
 
     public function byTask(int $taskId): array {

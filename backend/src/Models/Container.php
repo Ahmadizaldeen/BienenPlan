@@ -3,6 +3,7 @@
 namespace BienenPlan\Models;
 
 use PDO;
+use BienenPlan\Services\AccessService;
 
 class Container {
 
@@ -12,30 +13,22 @@ class Container {
         $this->pdo = $pdo;
     }
 
-    // Alle Container eines Benutzers abrufen.
-    // Sichtbar sind eigene Container sowie Container mit einer Aufgabe, die
-    // einer Gruppe des Benutzers zugewiesen ist (z.B. seiner persönlichen
-    // Gruppe "Personal user {id}").
-    public function getAll(int $userId): array {
+    // Projektmitglieder sehen alle Container, Aufgaben bleiben separat gefiltert.
+    public function getAll(int $userId, ?int $projectId = null): array {
         $stmt = $this->pdo->prepare(
-            'SELECT DISTINCT c.*
+            'SELECT DISTINCT c.*, p.archived_at AS project_archived_at
              FROM containers c
+             JOIN projects p ON p.id = c.project_id
+             ' . AccessService::ACTOR_JOIN . '
              WHERE c.deleted_at IS NULL
-               AND (
-                 c.created_by = :user_id
-                 OR EXISTS (
-                     SELECT 1
-                     FROM tasks t
-                     JOIN groups_tasks gt ON gt.task_id = t.id
-                     JOIN users_groups ug ON ug.groups_id = gt.group_id
-                     WHERE t.container_id = c.id
-                       AND t.deleted_at IS NULL
-                       AND ug.user_id = :shared_user_id
-                 )
-               )
+               AND ' . ($projectId === null ? 'p.archived_at IS NULL' :
+                    AccessService::PROJECT_READ_STATE_SQL . ' AND p.id = :project_id') . '
+               AND ' . AccessService::PROJECT_VIEW_SQL . '
              ORDER BY c.id DESC'
         );
-        $stmt->execute(['user_id' => $userId, 'shared_user_id' => $userId]);
+        $parameters = ['access_user' => $userId];
+        if ($projectId !== null) $parameters['project_id'] = $projectId;
+        $stmt->execute($parameters);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -47,34 +40,17 @@ class Container {
         return $container ?: null;
     }
 
-    // Prüft, ob ein Benutzer einen Container sehen/bearbeiten darf: entweder
-    // als Ersteller, oder weil ihm eine Aufgabe im Container über eine seiner
-    // Gruppen zugewiesen wurde.
+    // Projektmitglieder sehen Container auch dann, wenn sie nicht deren Ersteller sind.
     public function isVisibleToUser(int $containerId, int $userId): bool {
-        $stmt = $this->pdo->prepare(
-            'SELECT 1
-             FROM containers c
-             WHERE c.id = :container_id
-               AND (
-                 c.created_by = :user_id
-                 OR EXISTS (
-                     SELECT 1
-                     FROM tasks t
-                     JOIN groups_tasks gt ON gt.task_id = t.id
-                     JOIN users_groups ug ON ug.groups_id = gt.group_id
-                     WHERE t.container_id = c.id
-                       AND t.deleted_at IS NULL
-                       AND ug.user_id = :shared_user_id
-                 )
-               )
-             LIMIT 1'
-        );
-        $stmt->execute([
-            'container_id' => $containerId,
-            'user_id' => $userId,
-            'shared_user_id' => $userId,
-        ]);
-        return (bool) $stmt->fetchColumn();
+        return (new AccessService($this->pdo))->canViewContainer($userId, $containerId);
+    }
+
+    public function canManage(int $containerId, int $userId): bool {
+        return (new AccessService($this->pdo))->canManageContainer($userId, $containerId);
+    }
+
+    public function canCreateInProject(int $projectId, int $userId): bool {
+        return (new AccessService($this->pdo))->canCreateInProject($userId, $projectId);
     }
 
     // Neuen Container erstellen
@@ -98,8 +74,29 @@ class Container {
     }
 
     // Container löschen
-    public function delete(int $id): bool {
-        $stmt = $this->pdo->prepare('DELETE FROM containers WHERE id = :id');
-        return $stmt->execute(['id' => $id]);
+    public function delete(int $id, int $userId): bool {
+        $this->pdo->beginTransaction();
+        try {
+            // Task creation/moves lock this row too, so the empty-container check stays valid.
+            $lock = $this->pdo->prepare('SELECT id FROM containers WHERE id = :id FOR UPDATE');
+            $lock->execute(['id' => $id]);
+            if (!(new AccessService($this->pdo))->canManageContainer($userId, $id)) {
+                $this->pdo->rollBack();
+                return false;
+            }
+            $tasks = $this->pdo->prepare('SELECT 1 FROM tasks WHERE container_id = :id AND deleted_at IS NULL LIMIT 1');
+            $tasks->execute(['id' => $id]);
+            if ($tasks->fetchColumn()) {
+                throw new \DomainException('Container enthaelt aktive Tasks');
+            }
+            $stmt = $this->pdo->prepare('UPDATE containers SET deleted_at = CURRENT_TIMESTAMP,
+                deleted_by = :user_id WHERE id = :id AND deleted_at IS NULL');
+            $stmt->execute(['id' => $id, 'user_id' => $userId]);
+            $this->pdo->commit();
+            return $stmt->rowCount() === 1;
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $exception;
+        }
     }
 }

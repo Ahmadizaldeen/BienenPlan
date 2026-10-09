@@ -52,7 +52,7 @@ try{
     $projectController = new ProjectController($projectModel);
     $containerController = new ContainerController($containerModel);
     $userController = new UserController($userModel);
-    $authMiddleware = new AuthMiddleware($jwtService); 
+    $authMiddleware = new AuthMiddleware($jwtService, $userModel);
     $corsMiddleware = new CorsMiddleware();
     $apiController = new ApiController();
     $notFoundHandler = new NotFoundHandler();
@@ -98,6 +98,7 @@ $app->group('/api', function ($group) use ($taskController, $attachmentControlle
     $group->put('/tasks/{id}', [$taskController, 'update']);
     $group->delete('/tasks/{id}', [$taskController, 'delete']);
     $group->post('/tasks/{id}/status', [$taskController, 'updateStatus']);
+    $group->post('/tasks/{id}/move', [$taskController, 'move']);
     $group->post('/tasks/{id}/attachment', [$taskController, 'uploadAttachment']);
     $group->get('/tasks/{id}/attachments', [$attachmentController, 'index']);
     $group->post('/tasks/{id}/attachments', [$attachmentController, 'upload']);
@@ -112,6 +113,7 @@ $app->group('/api', function ($group) use ($taskController, $attachmentControlle
     $group->get('/groups', [$groupController, 'getAllGroups']);
     $group->post('/groups', [$groupController, 'createGroup']);
     $group->post('/groups/{groupId}/addUser/{userId}', [$groupController, 'addUserToGroup']);
+    $group->delete('/groups/{groupId}/users/{userId}', [$groupController, 'removeUserFromGroup']);
     $group->get('/tasks/{taskId}/groups', [$groupController, 'getGroupsForTask']);
     $group->get('/groups/{groupId}/users', [$groupController, 'getUsersInGroup']);
     $group->get('/groups/{groupId}/personal-user', [$groupController, 'getPersonalGroupUser']);
@@ -121,7 +123,14 @@ $app->group('/api', function ($group) use ($taskController, $attachmentControlle
 
     
     $group->get('/projects', [$projectController, 'getAll']);
+    // Keep the literal archive endpoint distinct from the project-ID route.
+    $group->get('/projects/archived', [$projectController, 'getArchived']);
+    $group->post('/projects/{id}/restore', [$projectController, 'restore']);
     $group->get('/projects/{id}', [$projectController, 'getById']);
+    $group->get('/projects/{id}/groups', [$projectController, 'getGroups']);
+    $group->post('/projects/{id}/groups', [$projectController, 'createGroup']);
+    $group->post('/projects/{id}/groups/{groupId}', [$projectController, 'addGroup']);
+    $group->delete('/projects/{id}/groups/{groupId}', [$projectController, 'removeGroup']);
     $group->post('/projects', [$projectController, 'create']);
     $group->put('/projects/{id}', [$projectController, 'update']);
     $group->delete('/projects/{id}', [$projectController, 'delete']);

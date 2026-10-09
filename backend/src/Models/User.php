@@ -60,7 +60,7 @@ class User {
     }
 
     public function findById(int $id): array|false {
-        $stmt = $this->db->prepare("SELECT id, name, email, picture FROM users WHERE id = :id AND deleted_at IS NULL");
+        $stmt = $this->db->prepare("SELECT id, name, email, picture, is_admin FROM users WHERE id = :id AND deleted_at IS NULL");
         $stmt->execute(['id' => $id]);
         return $stmt->fetch();
     }
