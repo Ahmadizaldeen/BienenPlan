@@ -16,16 +16,17 @@ function check(bool $condition, string $message): void {
     }
 }
 
-function fileUpload(string $name, string $content): UploadedFileInterface {
-    return new class($name, $content) implements UploadedFileInterface {
+function fileUpload(string $name, string $content, ?stdClass $tracker = null): UploadedFileInterface {
+    return new class($name, $content, $tracker) implements UploadedFileInterface {
         private StreamInterface $stream;
 
-        public function __construct(private string $name, string $content) {
+        public function __construct(private string $name, string $content, private ?stdClass $tracker) {
             $this->stream = (new StreamFactory())->createStream($content);
         }
 
         public function getStream(): StreamInterface { return $this->stream; }
         public function moveTo(string $targetPath): void {
+            if ($this->tracker !== null) $this->tracker->path = $targetPath;
             file_put_contents($targetPath, (string) $this->stream);
         }
         public function getSize(): ?int { return $this->stream->getSize(); }
@@ -74,6 +75,35 @@ $items = json_decode((string) $response->getBody(), true)['attachments'];
 check(count($items) === 2, 'Both files must be persisted');
 check($items[0]['original_name'] === 'one.txt', 'Client path must not be kept as filename');
 check($items[0]['can_delete'] == 1, 'Uploader can delete');
+
+$uploadRace = new class($db) extends TaskAttachment {
+    public function __construct(private PDO $database) { parent::__construct($database); }
+    public function add(int $taskId, int $userId, string $name, string $stored, string $mime, int $size): int {
+        $this->database->exec('UPDATE projects SET archived_at = CURRENT_TIMESTAMP WHERE id = 1');
+        return parent::add($taskId, $userId, $name, $stored, $mime, $size);
+    }
+};
+$tracker = new stdClass();
+$raceUploadRequest = $request->withUploadedFiles(['files' => [fileUpload('race.txt', 'Concurrent upload', $tracker)]]);
+check((new TaskAttachmentController($uploadRace))->upload($raceUploadRequest, new Response(), $args)->getStatusCode() === 409, 'Archival during upload returns conflict');
+check(count($model->byTask(1, 1, 1)) === 2 && !$db->inTransaction(), 'Denied upload rolls back database changes and closes transaction');
+check(isset($tracker->path) && !is_file($tracker->path), 'Denied upload removes the moved file');
+
+$deleteRace = new class($db) extends TaskAttachment {
+    public function __construct(private PDO $database) { parent::__construct($database); }
+    public function accessibleTask(int $taskId, int $userId): ?array {
+        $task = parent::accessibleTask($taskId, $userId);
+        if ($task !== null) {
+            $this->database->exec('UPDATE projects SET archived_at = CURRENT_TIMESTAMP WHERE id = 1');
+        }
+        return $task;
+    }
+};
+$raceDeleteArgs = $args + ['attachmentId' => (string) $items[0]['id']];
+check((new TaskAttachmentController($deleteRace))->delete($request, new Response(), $raceDeleteArgs)->getStatusCode() === 409, 'Attachment deletion rejects archival after initial access check');
+check($model->byId(1, (int) $items[0]['id']) !== null, 'Denied deletion preserves attachment record');
+$db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
+check((string) $controller->download($request, new Response(), $raceDeleteArgs)->getBody() === 'First file', 'Denied deletion preserves attachment bytes');
 
 check($model->accessibleTask(1, 99) === null, 'Unrelated user must not access task');
 check($model->accessibleTask(1, 2) === null, 'Container owner cannot bypass task group visibility');

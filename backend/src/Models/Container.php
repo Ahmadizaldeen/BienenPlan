@@ -55,22 +55,30 @@ class Container {
 
     // Neuen Container erstellen
     public function create(array $data): int {
-        $stmt = $this->pdo->prepare('INSERT INTO containers (title, project_id, created_by) VALUES (:title, :project_id, :created_by)');
+        $stmt = $this->pdo->prepare('INSERT INTO containers (title, project_id, created_by)
+            SELECT :title, p.id, a.id FROM projects p ' . AccessService::ACTOR_JOIN . '
+            WHERE p.id = :project_id AND p.archived_at IS NULL AND ' . AccessService::PROJECT_VIEW_SQL);
         $stmt->execute([
             'title' => $data['title'],
             'project_id' => $data['project_id'],
-            'created_by' => $data['created_by'],
+            'access_user' => $data['created_by'],
         ]);
+        if ($stmt->rowCount() !== 1) throw new \DomainException('Projekt nicht gefunden');
         return (int) $this->pdo->lastInsertId();
     }
 
     // Container aktualisieren
-    public function update(int $id, string $title): bool {
-        $stmt = $this->pdo->prepare('UPDATE containers SET title = :title WHERE id = :id');
-        return $stmt->execute([
+    public function update(int $id, string $title, int $userId): bool {
+        $stmt = $this->pdo->prepare('UPDATE containers c JOIN projects p ON p.id = c.project_id
+            ' . AccessService::ACTOR_JOIN . '
+            SET c.title = :title WHERE c.id = :id AND c.deleted_at IS NULL AND p.archived_at IS NULL
+              AND ' . AccessService::CONTAINER_MANAGE_SQL);
+        $stmt->execute([
             'id' => $id,
+            'access_user' => $userId,
             'title' => $title
         ]);
+        return $stmt->rowCount() > 0 || $this->canManage($id, $userId);
     }
 
     // Container löschen
@@ -89,9 +97,12 @@ class Container {
             if ($tasks->fetchColumn()) {
                 throw new \DomainException('Container enthaelt aktive Tasks');
             }
-            $stmt = $this->pdo->prepare('UPDATE containers SET deleted_at = CURRENT_TIMESTAMP,
-                deleted_by = :user_id WHERE id = :id AND deleted_at IS NULL');
-            $stmt->execute(['id' => $id, 'user_id' => $userId]);
+            $stmt = $this->pdo->prepare('UPDATE containers c JOIN projects p ON p.id = c.project_id
+                ' . AccessService::ACTOR_JOIN . '
+                SET c.deleted_at = CURRENT_TIMESTAMP, c.deleted_by = :user_id
+                WHERE c.id = :id AND c.deleted_at IS NULL AND p.archived_at IS NULL
+                  AND ' . AccessService::CONTAINER_MANAGE_SQL);
+            $stmt->execute(['id' => $id, 'user_id' => $userId, 'access_user' => $userId]);
             $this->pdo->commit();
             return $stmt->rowCount() === 1;
         } catch (\Throwable $exception) {

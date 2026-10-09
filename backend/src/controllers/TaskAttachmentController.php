@@ -112,12 +112,16 @@ class TaskAttachmentController {
             $this->attachments->rollback();
             foreach ($paths as $path) {
                 if (is_file($path)) {
-                    unlink($path);
+                    if (!unlink($path)) {
+                        throw new \RuntimeException('Upload konnte nicht zurueckgerollt werden', 0, $e);
+                    }
                 }
+            }
+            if ($e instanceof \DomainException) {
+                return $this->json($response, ['error' => $e->getMessage()], 409);
             }
             throw $e;
         }
-        $task = $this->task($request, $args);
         $items = array_values(array_filter(
             $this->attachments->byTask(
                 (int) $args['id'], (int) $request->getAttribute('user_id'), (int) $task['project_owner']
@@ -187,7 +191,9 @@ class TaskAttachmentController {
         if (!$this->attachments->access()->canDeleteAttachment($task, $attachment, $userId)) {
             return $this->json($response, ['error' => 'Keine Berechtigung zum Löschen'], 403);
         }
-        $this->attachments->remove((int) $args['id'], (int) $args['attachmentId']);
+        if (!$this->attachments->remove((int) $args['id'], (int) $args['attachmentId'], $userId)) {
+            return $this->json($response, ['error' => 'Anhang oder Berechtigung inzwischen geaendert'], 409);
+        }
         $path = $this->path($attachment['stored_name']);
         if (is_file($path) && !unlink($path)) {
             throw new \RuntimeException('Anhang konnte nicht vom Datenträger entfernt werden');

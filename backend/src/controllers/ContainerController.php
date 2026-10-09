@@ -82,6 +82,8 @@ class ContainerController {
                     'project_id' => $projectId,
                 ],
             ], 201);
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 404);
         } catch (\PDOException $e) {
             throw $e;
         }
@@ -108,7 +110,9 @@ class ContainerController {
         }
 
         try {
-            $this->containerModel->update($id, $title);
+            if (!$this->containerModel->update($id, $title, $userId)) {
+                return $this->jsonResponse($response, ['error' => 'Container oder Berechtigung inzwischen geaendert'], 409);
+            }
             return $this->jsonResponse($response, ['message' => 'Container aktualisiert.']);
         } catch (\PDOException $e) {
             throw $e;

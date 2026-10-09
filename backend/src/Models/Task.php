@@ -15,7 +15,11 @@ class Task {
     // CREATE
     public function create(array $data): int {
         $sql = "INSERT INTO tasks (container_id, created_by, title, description, status, deadline)
-                VALUES (:container_id, :created_by, :title, :description, :status, :deadline)";
+                SELECT c.id, a.id, :title, :description, :status, :deadline
+                FROM containers c JOIN projects p ON p.id = c.project_id
+                " . AccessService::ACTOR_JOIN . "
+                WHERE c.id = :container_id AND c.deleted_at IS NULL
+                  AND p.archived_at IS NULL AND " . AccessService::PROJECT_VIEW_SQL;
         
         $this->pdo->beginTransaction();
         try {
@@ -28,12 +32,15 @@ class Task {
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([
                 'container_id' => $data['container_id'],
-                'created_by'   => $data['created_by'],
+                'access_user'  => $data['created_by'],
                 'title'        => $data['title'],
                 'description'  => $data['description'] ?? null,
                 'status'       => $data['status'] ?? 'open',
                 'deadline'     => $data['deadline'] ?? null
             ]);
+            if ($stmt->rowCount() !== 1) {
+                throw new \DomainException('Container nicht gefunden');
+            }
             $taskId = (int) $this->pdo->lastInsertId();
             // Keep the default assignment atomic without adding a project membership.
             $assignment = $this->pdo->prepare(
@@ -175,29 +182,44 @@ class Task {
     }
 
     // UPDATE nur Status
-    public function updateStatus(int $id, string $status): bool {
-        $sql = "UPDATE tasks SET status = :status WHERE id = :id AND deleted_at IS NULL";
+    public function updateStatus(int $id, string $status, int $userId): bool {
+        // Recheck policy in the mutation, not only in the earlier controller read.
+        $sql = "UPDATE tasks t
+                JOIN containers c ON c.id = t.container_id
+                JOIN projects p ON p.id = c.project_id
+                " . AccessService::ACTOR_JOIN . "
+                SET t.status = :status
+                WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
+                  AND p.archived_at IS NULL AND " . AccessService::TASK_VIEW_SQL;
         $stmt = $this->pdo->prepare($sql);
-        return $stmt->execute(['id' => $id, 'status' => $status]);
+        $stmt->execute(['id' => $id, 'status' => $status, 'access_user' => $userId]);
+        // MySQL reports zero changed rows for an authorized, unchanged value too.
+        return $stmt->rowCount() > 0 || $this->canChangeStatus($id, $userId);
     }
 
     // UPDATE
-    public function update(int $id, array $data): bool {
-        $sql = "UPDATE tasks 
-                SET title = :title, 
-                    description = :description, 
-                    status = :status, 
-                    deadline = :deadline
-                WHERE id = :id AND deleted_at IS NULL";
+    public function update(int $id, array $data, int $userId): bool {
+        $sql = "UPDATE tasks t
+                JOIN containers c ON c.id = t.container_id
+                JOIN projects p ON p.id = c.project_id
+                " . AccessService::ACTOR_JOIN . "
+                SET t.title = :title,
+                    t.description = :description,
+                    t.status = :status,
+                    t.deadline = :deadline
+                WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
+                  AND " . AccessService::TASK_EDIT_SQL;
 
         $stmt = $this->pdo->prepare($sql);
-        return $stmt->execute([
+        $stmt->execute([
             'id'          => $id,
+            'access_user' => $userId,
             'title'       => $data['title'],
             'description' => $data['description'] ?? null,
             'status'      => $data['status'] ?? 'open',
             'deadline'    => $data['deadline'] ?? null
         ]);
+        return $stmt->rowCount() > 0 || $this->canEdit($id, $userId);
     }
 
     // DELETE (Soft-Delete)
@@ -233,15 +255,19 @@ class Task {
                 throw new \DomainException('Keine Berechtigung oder Container nicht gefunden');
             }
             // Keep project-scoped assignments valid by rejecting cross-project moves in SQL.
-            $stmt = $this->pdo->prepare('UPDATE tasks SET container_id = :target
-                WHERE id = :id AND container_id IN (
-                    SELECT source.id FROM containers source JOIN containers destination
-                      ON destination.project_id = source.project_id
-                    WHERE destination.id = :destination AND destination.deleted_at IS NULL
-                ) AND deleted_at IS NULL');
-            $stmt->execute(['target' => $containerId, 'id' => $id, 'destination' => $containerId]);
-            $current = $this->pdo->prepare('SELECT container_id FROM tasks WHERE id = :id');
-            $current->execute(['id' => $id]);
+            $stmt = $this->pdo->prepare('UPDATE tasks t JOIN containers c ON c.id = t.container_id
+                JOIN projects p ON p.id = c.project_id ' . AccessService::ACTOR_JOIN . '
+                JOIN containers destination ON destination.id = :destination AND destination.project_id = p.id
+                SET t.container_id = destination.id
+                WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
+                  AND destination.deleted_at IS NULL AND ' . AccessService::TASK_GROUP_MANAGE_SQL);
+            $stmt->execute(['id' => $id, 'destination' => $containerId, 'access_user' => $userId]);
+            $current = $this->pdo->prepare('SELECT t.container_id FROM tasks t
+                JOIN containers c ON c.id = t.container_id JOIN projects p ON p.id = c.project_id
+                ' . AccessService::ACTOR_JOIN . '
+                WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
+                  AND ' . AccessService::TASK_GROUP_MANAGE_SQL);
+            $current->execute(['id' => $id, 'access_user' => $userId]);
             if ((int) $current->fetchColumn() !== $containerId) {
                 throw new \DomainException('Tasks koennen nur innerhalb desselben Projekts verschoben werden');
             }

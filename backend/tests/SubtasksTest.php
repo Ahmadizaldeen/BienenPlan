@@ -47,6 +47,29 @@ check($response->getStatusCode() === 201, 'Project owner can create');
 $item = json_decode((string) $response->getBody(), true);
 check($item['title'] === 'New' && $item['completed'] === false && $item['created_by'] === 1, 'Creation normalizes fields');
 $args['subtaskId'] = (string) $item['id'];
+$archiveRace = new class($db) extends Subtask {
+    public function __construct(private PDO $database) { parent::__construct($database); }
+    public function accessibleTask(int $taskId, int $userId): ?array {
+        $task = parent::accessibleTask($taskId, $userId);
+        if ($task !== null) {
+            $this->database->exec('UPDATE projects SET archived_at = CURRENT_TIMESTAMP WHERE id = 1');
+        }
+        return $task;
+    }
+};
+$raceController = new SubtaskController($archiveRace);
+$beforeRace = count($model->byTask(1));
+check($raceController->create($request->withParsedBody(['title' => 'Denied']), new Response(), $args)->getStatusCode() === 409, 'Subtask creation rejects archival after initial access check');
+check(count($model->byTask(1)) === $beforeRace, 'Denied subtask creation inserts nothing');
+$db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
+check($raceController->update($request->withParsedBody(['title' => 'Denied', 'completed' => true]), new Response(), $args)->getStatusCode() === 409, 'Subtask edit rejects archival after initial access check');
+check($model->byId(1, $item['id'])['title'] === 'New' && !$model->byId(1, $item['id'])['completed'], 'Denied subtask edit changes neither title nor checkbox');
+$db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
+check($raceController->update($request->withParsedBody(['completed' => true]), new Response(), $args)->getStatusCode() === 409, 'Checkbox-only update also rejects concurrent archival');
+$db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
+check($raceController->delete($request, new Response(), $args)->getStatusCode() === 409, 'Subtask deletion rejects archival after initial access check');
+check($model->byId(1, $item['id']) !== null, 'Denied subtask deletion retains the item');
+$db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
 $member = $request->withAttribute('user_id', 3);
 check($controller->create($member->withParsedBody(['title' => 'No']), new Response(), $args)->getStatusCode() === 403, 'Members cannot create');
 $taskCreator = $request->withAttribute('user_id', 4);
@@ -114,13 +137,13 @@ check(!$taskModel->isVisibleToUser(41, 2), 'Member cannot see tasks assigned to 
 check(!$taskModel->isVisibleToUser(41, 3), 'Group outside the project cannot grant task access');
 check($taskModel->isVisibleToUser(41, 1), 'Project owner can see every project task');
 $groupModel = new Group($projectDb);
-check(!$groupModel->assignGroup(41, 11), 'A non-project group cannot be assigned to a task');
+check(!$groupModel->assignGroup(41, 11, 1), 'A non-project group cannot be assigned to a task');
 $projectController = new ProjectController($project);
 $ownerRequest = (new ServerRequestFactory())->createServerRequest('POST', '/')->withAttribute('user_id', 1);
 $memberRequest = $ownerRequest->withAttribute('user_id', 2);
 check($projectController->addGroup($memberRequest, new Response(), ['id' => '20', 'groupId' => '11'])->getStatusCode() === 403, 'Only project owner can add groups');
 check($projectController->addGroup($ownerRequest, new Response(), ['id' => '20', 'groupId' => '11'])->getStatusCode() === 201, 'Project owner can add existing groups');
-check($groupModel->assignGroup(41, 11), 'Project group can be assigned to a task');
+check($groupModel->assignGroup(41, 11, 1), 'Project group can be assigned to a task');
 check($projectController->removeGroup($ownerRequest, new Response(), ['id' => '20', 'groupId' => '11'])->getStatusCode() === 200, 'Project owner can remove groups');
 check(!$taskModel->isVisibleToUser(41, 3), 'Removing a project group removes its task access');
 $createdGroup = $projectController->createGroup(

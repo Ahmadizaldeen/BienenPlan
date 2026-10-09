@@ -115,13 +115,84 @@ try {
         && !in_array(11, $visibleGroups) && !in_array(13, $visibleGroups), 'Group list respects local/global scope');
     check($groupController->getUsersInGroup($request, new Response(), ['groupId' => '11'])->getStatusCode() === 404, 'Foreign local member list is hidden');
     check($groups->getGroupsForUser(5, 1) === [], 'Foreign local memberships not exposed by user group endpoint');
-    check(!$projects->addGroup(1, 11) && !$projects->addGroup(1, 14), 'Foreign local and personal groups cannot be linked');
-    check($projects->addGroup(1, 12), 'Owner can select global group for project');
-    check(!$groups->assignGroup(1, 11) && !$groups->assignGroup(1, 14), 'Only eligible project groups can be manually assigned');
+    check(!$projects->addGroup(1, 11, 1) && !$projects->addGroup(1, 14, 1), 'Foreign local and personal groups cannot be linked');
+    check($projects->addGroup(1, 12, 1), 'Owner can select global group for project');
+    check(!$groups->assignGroup(1, 11, 1) && !$groups->assignGroup(1, 14, 1), 'Only eligible project groups can be manually assigned');
 
     $member = $request->withAttribute('user_id', 4);
     check($taskController->update($member->withParsedBody(['title' => 'No']), new Response(), ['id' => '2'])->getStatusCode() === 403, 'Member cannot edit task content');
     check($taskController->updateStatus($member->withParsedBody(['status' => 'done']), new Response(), ['id' => '2'])->getStatusCode() === 200, 'Member can change status');
+    check($taskController->updateStatus($member->withParsedBody(['status' => 'done']), new Response(), ['id' => '2'])->getStatusCode() === 200, 'Unchanged authorized status still succeeds');
+    check($tasks->update(2, ['title' => 'Shared', 'status' => 'done'], 3), 'Authorized task content update succeeds');
+    check($tasks->update(2, ['title' => 'Shared', 'status' => 'done'], 3), 'Unchanged authorized content still succeeds');
+    check(!$tasks->updateStatus(2, 'open', 5) && !$tasks->update(2, ['title' => 'Denied'], 5), 'Model writes reject unauthorized actors without controller checks');
+
+    $statusRace = new class($db) extends Task {
+        public function __construct(private PDO $database) { parent::__construct($database); }
+        public function canChangeStatus(int $taskId, int $userId): bool {
+            $allowed = parent::canChangeStatus($taskId, $userId);
+            if ($allowed) {
+                $this->database->exec('DELETE FROM users_groups WHERE user_id = 4 AND groups_id = 10');
+            }
+            return $allowed;
+        }
+    };
+    $statusRaceController = new TaskController($statusRace, $attachmentController);
+    check($statusRaceController->updateStatus($member->withParsedBody(['status' => 'open']), new Response(), ['id' => '2'])->getStatusCode() === 409, 'Membership loss between check and write returns conflict');
+    check($db->query('SELECT status FROM tasks WHERE id = 2')->fetchColumn() === 'done', 'Revoked member cannot change status after the controller check');
+    $db->exec('INSERT INTO users_groups (user_id, groups_id) VALUES (4, 10)');
+
+    $contentRace = new class($db) extends Task {
+        public function __construct(private PDO $database) { parent::__construct($database); }
+        public function canEdit(int $taskId, int $userId): bool {
+            $allowed = parent::canEdit($taskId, $userId);
+            if ($allowed) {
+                $this->database->exec('UPDATE projects SET archived_at = CURRENT_TIMESTAMP WHERE id = 1');
+            }
+            return $allowed;
+        }
+    };
+    $contentRaceController = new TaskController($contentRace, $attachmentController);
+    check($contentRaceController->update($request->withParsedBody(['title' => 'Denied']), new Response(), ['id' => '2'])->getStatusCode() === 409, 'Archival between check and write returns conflict');
+    check($db->query('SELECT title FROM tasks WHERE id = 2')->fetchColumn() === 'Shared', 'Even owner cannot write task content after archival');
+    check(!$tasks->updateStatus(2, 'open', 6) && !$tasks->update(2, ['title' => 'Denied'], 6), 'Even admin model writes reject archived tasks');
+    $db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
+    $containerRace = new class($db) extends Container {
+        public function __construct(private PDO $database) { parent::__construct($database); }
+        public function canManage(int $containerId, int $userId): bool {
+            $allowed = parent::canManage($containerId, $userId);
+            if ($allowed) {
+                $this->database->exec('UPDATE projects SET archived_at = CURRENT_TIMESTAMP WHERE id = 1');
+            }
+            return $allowed;
+        }
+    };
+    check((new ContainerController($containerRace))->update($request->withParsedBody(['title' => 'Denied']), new Response(), ['id' => '1'])->getStatusCode() === 409, 'Container edit rejects archival after initial check');
+    check($db->query('SELECT title FROM containers WHERE id = 1')->fetchColumn() === 'Work', 'Denied container edit preserves title');
+    $db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
+    $projectRace = new class($db) extends Project {
+        public function __construct(private PDO $database) { parent::__construct($database); }
+        public function isOwner(int $projectId, int $userId): bool {
+            $allowed = parent::isOwner($projectId, $userId);
+            if ($allowed) {
+                $this->database->exec('UPDATE projects SET archived_at = CURRENT_TIMESTAMP WHERE id = 1');
+            }
+            return $allowed;
+        }
+    };
+    $beforeGroupRace = (int) $db->query('SELECT COUNT(*) FROM groups')->fetchColumn();
+    check((new ProjectController($projectRace))->createGroup($request->withParsedBody(['name' => 'Denied race group', 'user_ids' => [4]]), new Response(), ['id' => '1'])->getStatusCode() === 409, 'Local group creation rejects archival after owner check');
+    check((int) $db->query('SELECT COUNT(*) FROM groups')->fetchColumn() === $beforeGroupRace && !$db->inTransaction(), 'Denied local group creation rolls back completely');
+    check(!$projects->addGroup(1, 12, 6) && !$projects->removeGroup(1, 10, 6), 'Archive blocks project group links and unlinks at the model write');
+    check(!$groups->assignGroup(2, 12, 6) && !$groups->removeGroup(2, 10, 6), 'Archive blocks task assignments at the model write');
+    check(!$groups->addUserToGroup(5, 10, 6) && !$groups->removeUserFromGroup(4, 10, 6), 'Archive blocks local memberships at the model write');
+    check((int) $db->query('SELECT COUNT(*) FROM groups_tasks WHERE task_id = 2 AND group_id = 10')->fetchColumn() === 1, 'Denied group removal retains task assignments');
+    check((int) $db->query('SELECT COUNT(*) FROM users_groups WHERE user_id = 4 AND groups_id = 10')->fetchColumn() === 1, 'Denied membership removal retains member');
+    check(!$projects->update(1, ['name' => 'Denied'], 6), 'Archive blocks project name updates at the model write');
+    $db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
+    check(!$projects->update(1, ['name' => 'Denied'], 5) && !$projects->archive(1, 5), 'Foreign actor cannot update or archive a project directly');
+    check($projects->update(1, ['name' => 'One'], 1) && $containers->update(1, 'Work', 1), 'Unchanged authorized project and container updates succeed');
+    check(!$projects->addGroup(1, 12, 4) && !$groups->assignGroup(2, 12, 4), 'Member cannot bypass group management policy using models');
     check($taskController->create($request->withAttribute('user_id', 5)->withParsedBody([
         'title' => 'No',
         'container_id' => 1,
@@ -141,12 +212,24 @@ try {
     check($groupController->createGroup($request->withAttribute('user_id', 6)->withParsedBody(['name' => 'New global']), new Response(), [])->getStatusCode() === 201, 'Admin creates global group');
     check($projectController->createGroup($request->withParsedBody(['name' => 'Local', 'user_ids' => [4]]), new Response(), ['id' => '1'])->getStatusCode() === 409, 'Local names unique within project');
     check($projectController->createGroup($request->withParsedBody(['name' => 'Team', 'user_ids' => [4]]), new Response(), ['id' => '1'])->getStatusCode() === 201, 'Owner creates local group');
+    $beforeInvalidNames = (int) $db->query('SELECT COUNT(*) FROM groups')->fetchColumn();
+    foreach ([str_repeat('a', 101), str_repeat('ü', 101), '', " \n ", null, 123, ['invalid'], "\xFF"] as $invalidName) {
+        check($projectController->createGroup($request->withParsedBody(['name' => $invalidName, 'user_ids' => [1]]), new Response(), ['id' => '1'])->getStatusCode() === 400, 'Invalid local group name returns 400');
+        check($groupController->createGroup($request->withAttribute('user_id', 6)->withParsedBody(['name' => $invalidName]), new Response(), [])->getStatusCode() === 400, 'Invalid global group name returns 400');
+    }
+    check($projectController->createGroup($request->withParsedBody(null), new Response(), ['id' => '1'])->getStatusCode() === 400, 'Local group rejects missing body');
+    check($groupController->createGroup($request->withAttribute('user_id', 6)->withParsedBody(null), new Response(), [])->getStatusCode() === 400, 'Global group rejects missing body');
+    check((int) $db->query('SELECT COUNT(*) FROM groups')->fetchColumn() === $beforeInvalidNames, 'Invalid names never insert groups');
+    check(Group::isValidName(str_repeat('ü', 100)), 'Name length counts Unicode codepoints, not bytes');
+    check($projectController->createGroup($request->withParsedBody(['name' => str_repeat('a', 100), 'user_ids' => [1]]), new Response(), ['id' => '1'])->getStatusCode() === 201, '100-character local name is accepted');
+    check($groupController->createGroup($request->withAttribute('user_id', 6)->withParsedBody(['name' => str_repeat('b', 100)]), new Response(), [])->getStatusCode() === 201, '100-character global name is accepted');
     check($groupController->addUserToGroup($request, new Response(), ['groupId' => '12', 'userId' => '4'])->getStatusCode() === 403, 'Owner cannot alter global membership');
     check($groupController->addUserToGroup($request, new Response(), ['groupId' => '10', 'userId' => '5'])->getStatusCode() === 201, 'Owner adds individual to local group');
     check($groupController->removeUserFromGroup($request, new Response(), ['groupId' => '10', 'userId' => '5'])->getStatusCode() === 200, 'Owner removes local member');
     check(!$access->canViewProject(5, 1), 'Removal takes effect immediately');
     check($subtaskController->create($request->withAttribute('user_id', 2)->withParsedBody(['title' => 'No']), new Response(), ['taskId' => '2'])->getStatusCode() === 403, 'Assigned container owner cannot create subtasks');
     check($subtaskController->update($member->withParsedBody(['title' => 'Own item']), new Response(), ['taskId' => '2', 'subtaskId' => '1'])->getStatusCode() === 200, 'Member edits own subtask');
+    check($subtaskController->update($member->withParsedBody(['title' => 'Own item']), new Response(), ['taskId' => '2', 'subtaskId' => '1'])->getStatusCode() === 200, 'Unchanged authorized subtask update succeeds');
     check($attachmentController->delete($request->withAttribute('user_id', 6), new Response(), ['id' => '2', 'attachmentId' => '1'])->getStatusCode() === 200, 'Admin deletes foreign attachment');
 
     check($containerController->delete($request->withAttribute('user_id', 2), new Response(), ['id' => '1'])->getStatusCode() === 409, 'Active tasks block container removal');
@@ -188,8 +271,15 @@ try {
     check($middleware($authenticated, $handler)->getStatusCode() === 204, 'Middleware reads current admin');
     $db->exec('UPDATE users SET is_admin = 0 WHERE id = 6');
     check($middleware($authenticated, $handler)->getStatusCode() === 200 && !$access->canViewTask(6, 1), 'Admin revocation applies with same JWT');
+    try {
+        $groups->createGroup('Denied after admin revocation', [], 6);
+        throw new LogicException('Revoked admin must not create a global group');
+    } catch (DomainException $exception) {
+        check(!$db->inTransaction(), 'Revoked global group creation rolls back the transaction');
+    }
     $db->exec('UPDATE users SET deleted_at = CURRENT_TIMESTAMP WHERE id = 6');
     check($middleware($authenticated, $handler)->getStatusCode() === 401, 'Deleted user rejected with existing JWT');
+    check($projectController->create($request->withAttribute('user_id', 6)->withParsedBody(['name' => 'Denied inactive creator']), new Response())->getStatusCode() === 401, 'Account deactivation also prevents project creation after authentication');
     $authController = new AuthController($users, $jwt);
     check($authController->register($request->withParsedBody([
         'name' => 'New',

@@ -92,6 +92,8 @@ class TaskController {
                 'message' => 'Task erfolgreich erstellt',
                 'id' => $taskId
             ], 201);
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => 'Container nicht gefunden'], 404);
         } catch (\PDOException $e) {
             if ($e->getCode() !== '23000') {
                 throw $e;
@@ -125,7 +127,9 @@ class TaskController {
             return $this->jsonResponse($response, ['error' => 'title darf nicht leer sein'], 400);
         }
 
-        $this->taskModel->update($id, $data);
+        if (!$this->taskModel->update($id, $data, $userId)) {
+            return $this->jsonResponse($response, ['error' => 'Task oder Berechtigung inzwischen geaendert'], 409);
+        }
         return $this->jsonResponse($response, ['message' => 'Task erfolgreich aktualisiert']);
     }
 
@@ -176,7 +180,9 @@ class TaskController {
         if (!$this->taskModel->canChangeStatus($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Archivierte Projekte sind schreibgeschuetzt'], 403);
         }
-        $this->taskModel->updateStatus($id, $status);
+        if (!$this->taskModel->updateStatus($id, $status, $userId)) {
+            return $this->jsonResponse($response, ['error' => 'Task oder Berechtigung inzwischen geaendert'], 409);
+        }
         return $this->jsonResponse($response, ['message' => 'Status erfolgreich aktualisiert']);
     }
 

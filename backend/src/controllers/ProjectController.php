@@ -38,6 +38,8 @@ class ProjectController {
                 'message' => 'Projekt erfolgreich erstellt',
                 'id' => $projectId
             ], 201);
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 401);
         } catch (\PDOException $e) {
             if ($e->getCode() === '23000' && ($e->errorInfo[1] ?? null) === 1062) {
                 return $this->jsonResponse($response, ['error' => 'Projektname bereits vergeben'], 409);
@@ -115,7 +117,7 @@ class ProjectController {
         }
 
         try {
-            if (!$this->projectModel->addGroup($projectId, $groupId)) {
+            if (!$this->projectModel->addGroup($projectId, $groupId, $userId)) {
                 return $this->jsonResponse($response, ['error' => 'Projekt oder Gruppe nicht gefunden'], 404);
             }
         } catch (\PDOException $exception) {
@@ -132,7 +134,10 @@ class ProjectController {
         $projectId = (int) ($args['id'] ?? 0);
         $userId = (int) $request->getAttribute('user_id');
         $data = $request->getParsedBody();
-        $name = trim((string) ($data['name'] ?? ''));
+        if (!is_array($data) || !Group::isValidName($data['name'] ?? null)) {
+            return $this->jsonResponse($response, ['error' => 'Gruppenname muss 1 bis 100 Zeichen enthalten'], 400);
+        }
+        $name = trim($data['name']);
         $rawUserIds = $data['user_ids'] ?? [];
 
         if ($projectId < 1 || $name === '' || !is_array($rawUserIds) || $rawUserIds === []) {
@@ -154,7 +159,9 @@ class ProjectController {
         }
 
         try {
-            $groupId = $this->projectModel->createGroup($projectId, $name, array_values(array_unique($userIds)));
+            $groupId = $this->projectModel->createGroup($projectId, $name, array_values(array_unique($userIds)), $userId);
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 409);
         } catch (\InvalidArgumentException $exception) {
             return $this->jsonResponse($response, ['error' => $exception->getMessage()], 400);
         } catch (\PDOException $exception) {
@@ -177,7 +184,7 @@ class ProjectController {
         if (!$this->projectModel->isOwner($projectId, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Keine Berechtigung'], 403);
         }
-        if (!$this->projectModel->removeGroup($projectId, $groupId)) {
+        if (!$this->projectModel->removeGroup($projectId, $groupId, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Projektzuordnung nicht gefunden'], 404);
         }
 
@@ -193,7 +200,9 @@ class ProjectController {
                 $this->projectModel->isVisibleToUser($id, $userId) ? 403 : 404);
         }
 
-        $this->projectModel->archive($id, $userId);
+        if (!$this->projectModel->archive($id, $userId)) {
+            return $this->jsonResponse($response, ['error' => 'Projekt oder Berechtigung inzwischen geaendert'], 409);
+        }
         return $this->jsonResponse($response, ['message' => 'Projekt erfolgreich archiviert']);
     }
 
@@ -212,7 +221,9 @@ class ProjectController {
             return $this->jsonResponse($response, ['error' => 'name darf nicht leer sein'], 400);
         }
 
-        $this->projectModel->update($id, $data);
+        if (!$this->projectModel->update($id, $data, $userId)) {
+            return $this->jsonResponse($response, ['error' => 'Projekt oder Berechtigung inzwischen geaendert'], 409);
+        }
         return $this->jsonResponse($response, ['message' => 'Projekt erfolgreich aktualisiert']);
     }
 

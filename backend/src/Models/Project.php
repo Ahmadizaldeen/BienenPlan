@@ -15,13 +15,14 @@ class Project {
     // CREATE
     public function create(array $data): int {
         $sql = "INSERT INTO projects (name, created_by) 
-                VALUES (:name, :created_by)";
+                SELECT :name, id FROM users WHERE id = :created_by AND deleted_at IS NULL";
         
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
             'name'        => $data['name'],
             'created_by'  => $data['created_by']
         ]);
+        if ($stmt->rowCount() !== 1) throw new \DomainException('Benutzer nicht mehr aktiv');
 
         return (int) $this->pdo->lastInsertId();
     }
@@ -72,23 +73,29 @@ class Project {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function addGroup(int $projectId, int $groupId): bool {
+    public function addGroup(int $projectId, int $groupId, int $actorId): bool {
         $stmt = $this->pdo->prepare(
             'INSERT INTO projects_groups (project_id, group_id)
              SELECT p.id, g.id FROM projects p JOIN groups g ON g.id = :group_id
+             ' . AccessService::ACTOR_JOIN . '
              WHERE p.id = :project_id AND p.archived_at IS NULL
-               AND g.personal_user_id IS NULL AND (g.is_global = 1 OR g.project_id = p.id)'
+               AND g.personal_user_id IS NULL AND (g.is_global = 1 OR g.project_id = p.id)
+               AND ' . AccessService::PROJECT_MANAGE_SQL
         );
-        $stmt->execute(['project_id' => $projectId, 'group_id' => $groupId]);
+        $stmt->execute(['project_id' => $projectId, 'group_id' => $groupId, 'access_user' => $actorId]);
         return $stmt->rowCount() === 1;
     }
 
-    public function createGroup(int $projectId, string $name, array $userIds): int {
+    public function createGroup(int $projectId, string $name, array $userIds, int $actorId): int {
+        if (!Group::isValidName($name)) throw new \InvalidArgumentException('Gruppenname muss 1 bis 100 Zeichen enthalten');
         // Keep the group, memberships, and project link atomic.
         $this->pdo->beginTransaction();
         try {
-            $group = $this->pdo->prepare('INSERT INTO groups (name, project_id) VALUES (:name, :project_id)');
-            $group->execute(['name' => $name, 'project_id' => $projectId]);
+            $group = $this->pdo->prepare('INSERT INTO groups (name, project_id)
+                SELECT :name, p.id FROM projects p ' . AccessService::ACTOR_JOIN . '
+                WHERE p.id = :project_id AND p.archived_at IS NULL AND ' . AccessService::PROJECT_MANAGE_SQL);
+            $group->execute(['name' => $name, 'project_id' => $projectId, 'access_user' => $actorId]);
+            if ($group->rowCount() !== 1) throw new \DomainException('Projekt oder Berechtigung inzwischen geaendert');
             $groupId = (int) $this->pdo->lastInsertId();
 
             $membership = $this->pdo->prepare(
@@ -102,10 +109,9 @@ class Project {
                 }
             }
 
-            $assignment = $this->pdo->prepare(
-                'INSERT INTO projects_groups (project_id, group_id) VALUES (:project_id, :group_id)'
-            );
-            $assignment->execute(['project_id' => $projectId, 'group_id' => $groupId]);
+            if (!$this->addGroup($projectId, $groupId, $actorId)) {
+                throw new \DomainException('Projekt oder Berechtigung inzwischen geaendert');
+            }
             $this->pdo->commit();
             return $groupId;
         } catch (\Throwable $exception) {
@@ -116,7 +122,7 @@ class Project {
         }
     }
 
-    public function removeGroup(int $projectId, int $groupId): bool {
+    public function removeGroup(int $projectId, int $groupId, int $actorId): bool {
         // Remove this project's task assignments before dropping its group allowlist entry.
         $this->pdo->beginTransaction();
         try {
@@ -125,16 +131,25 @@ class Project {
                  WHERE group_id = :group_id AND task_id IN (
                      SELECT t.id FROM tasks t
                      JOIN containers c ON c.id = t.container_id
-                     WHERE c.project_id = :project_id
+                     JOIN projects p ON p.id = c.project_id ' . AccessService::ACTOR_JOIN . '
+                     WHERE c.project_id = :project_id AND p.archived_at IS NULL
+                       AND ' . AccessService::PROJECT_MANAGE_SQL . '
                  )'
             );
-            $tasks->execute(['project_id' => $projectId, 'group_id' => $groupId]);
+            $tasks->execute(['project_id' => $projectId, 'group_id' => $groupId, 'access_user' => $actorId]);
 
             $assignment = $this->pdo->prepare(
-                'DELETE FROM projects_groups WHERE project_id = :project_id AND group_id = :group_id'
+                'DELETE FROM projects_groups WHERE project_id = :project_id AND group_id = :group_id
+                 AND EXISTS (SELECT 1 FROM projects p ' . AccessService::ACTOR_JOIN . '
+                     WHERE p.id = projects_groups.project_id AND p.archived_at IS NULL
+                       AND ' . AccessService::PROJECT_MANAGE_SQL . ')'
             );
-            $assignment->execute(['project_id' => $projectId, 'group_id' => $groupId]);
+            $assignment->execute(['project_id' => $projectId, 'group_id' => $groupId, 'access_user' => $actorId]);
             $removed = $assignment->rowCount() > 0;
+            if (!$removed) {
+                $this->pdo->rollBack();
+                return false;
+            }
             $this->pdo->commit();
             return $removed;
         } catch (\Throwable $exception) {
@@ -165,29 +180,37 @@ class Project {
     }
 
     // UPDATE
-    public function update(int $id, array $data): bool {
+    public function update(int $id, array $data, int $userId): bool {
         $sql = "UPDATE projects 
                 SET name = :name
-                WHERE id = :id AND archived_at IS NULL";
+                WHERE id = :id AND archived_at IS NULL AND EXISTS (
+                    SELECT 1 FROM users a WHERE a.id = :access_user AND a.deleted_at IS NULL
+                      AND (a.is_admin = 1 OR projects.created_by = a.id))";
 
         $stmt = $this->pdo->prepare($sql);
-        return $stmt->execute([
+        $stmt->execute([
             'id'   => $id,
+            'access_user' => $userId,
             'name' => $data['name']
         ]);
+        return $stmt->rowCount() > 0 || $this->isOwner($id, $userId);
     }
 
     // Archiving hides the project but preserves its records for future statistics.
     public function archive(int $id, int $archivedBy): bool {
         $sql = "UPDATE projects 
                 SET archived_at = NOW(), archived_by = :archived_by 
-                WHERE id = :id AND archived_at IS NULL";
+                WHERE id = :id AND archived_at IS NULL AND EXISTS (
+                    SELECT 1 FROM users a WHERE a.id = :access_user AND a.deleted_at IS NULL
+                      AND (a.is_admin = 1 OR projects.created_by = a.id))";
 
         $stmt = $this->pdo->prepare($sql);
-        return $stmt->execute([
+        $stmt->execute([
             'id'         => $id,
+            'access_user' => $archivedBy,
             'archived_by' => $archivedBy
         ]);
+        return $stmt->rowCount() === 1;
     }
 
     public function isAdmin(int $userId): bool {

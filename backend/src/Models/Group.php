@@ -3,15 +3,15 @@
 // Model for managing groups and their relationships with users and tasks
 // Provides methods to create, read, update, and delete groups, as well as manage their relationships with users and tasks.
 
-// getAllGroups(): array
-// createGroup(string $name, array $userIds = []): int
-// addUserToGroup(int $userId, int $groupId): bool
-// assignGroup(int $taskId, int $groupId): bool
+// getAllGroups(int $userId): array
+// createGroup(string $name, array $userIds, int $actorId): int
+// addUserToGroup(int $userId, int $groupId, int $actorId): bool
+// assignGroup(int $taskId, int $groupId, int $actorId): bool
 // getGroupsForTask(int $taskId): array
-// removeGroup(int $taskId, int $groupId): bool
+// removeGroup(int $taskId, int $groupId, int $actorId): bool
 
 // getUsersInGroup(int $groupId): array
-// getGroupsForUser(int $userId): array
+// getGroupsForUser(int $userId, int $viewerId): array
 // findGroupById(int $groupId): array|false
 
 // Persönliche Gruppen ("Personal user {id}"):
@@ -47,6 +47,15 @@ class Group
         $this->pdo = $pdo;
     }
 
+
+    // Validates the group name according to the defined rules.
+    public static function isValidName(mixed $name): bool
+    {
+        return is_string($name) && trim($name) !== ''
+            && preg_match('//u', $name) === 1
+            && preg_match_all('/./us', trim($name)) <= 100;
+    }
+
     //GET all groups
     public function access(): AccessService
     {
@@ -66,14 +75,17 @@ class Group
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function createGroup(string $name, array $userIds = []): int
+    public function createGroup(string $name, array $userIds, int $actorId): int
     {
+        if (!self::isValidName($name)) throw new \InvalidArgumentException('Gruppenname muss 1 bis 100 Zeichen enthalten');
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare(
-                "INSERT INTO groups (name, is_global) VALUES (:name, 1)"
+                "INSERT INTO groups (name, is_global)
+                 SELECT :name, 1 FROM users a WHERE a.id = :access_user AND a.deleted_at IS NULL AND a.is_admin = 1"
             );
-            $stmt->execute(['name' => $name]);
+            $stmt->execute(['name' => $name, 'access_user' => $actorId]);
+            if ($stmt->rowCount() !== 1) throw new \DomainException('Berechtigung inzwischen geaendert');
             $groupId = (int) $this->pdo->lastInsertId();
 
             if ($userIds !== []) {
@@ -123,21 +135,24 @@ class Group
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
     //POST: Add a user to a group 
-    public function addUserToGroup(int $userId, int $groupId): bool
+    public function addUserToGroup(int $userId, int $groupId, int $actorId): bool
     {
         $stmt = $this->pdo->prepare(
             "INSERT INTO users_groups (user_id, groups_id)
-             SELECT id, :groups_id FROM users WHERE id = :user_id AND deleted_at IS NULL"
+             SELECT target.id, g.id FROM users target JOIN groups g ON g.id = :groups_id
+             " . AccessService::ACTOR_JOIN . "
+             WHERE target.id = :user_id AND target.deleted_at IS NULL AND " . AccessService::GROUP_MANAGE_SQL
         );
         $stmt->execute([
             'user_id' => $userId,
-            'groups_id' => $groupId
+            'groups_id' => $groupId,
+            'access_user' => $actorId,
         ]);
 
         return $stmt->rowCount() > 0;
     }
 
-    public function assignGroup(int $taskId, int $groupId): bool
+    public function assignGroup(int $taskId, int $groupId, int $actorId): bool
     {
         $statement = $this->pdo->prepare(
             "INSERT INTO groups_tasks (task_id, group_id)
@@ -145,46 +160,50 @@ class Group
              FROM tasks t
                          JOIN containers c ON c.id = t.container_id
              JOIN projects p ON p.id = c.project_id
+             " . AccessService::ACTOR_JOIN . "
              LEFT JOIN projects_groups pg ON pg.project_id = c.project_id AND pg.group_id = :project_group_id
              JOIN groups g ON g.id = :group_id
              WHERE t.id = :task_id
                AND t.deleted_at IS NULL
                AND c.deleted_at IS NULL AND p.archived_at IS NULL
                AND pg.group_id IS NOT NULL AND g.personal_user_id IS NULL
-               AND (g.is_global = 1 OR g.project_id = p.id)"
+               AND (g.is_global = 1 OR g.project_id = p.id)
+               AND " . AccessService::PROJECT_MANAGE_SQL
         );
 
         $statement->execute([
             'task_id' => $taskId,
             'group_id' => $groupId,
             'project_group_id' => $groupId,
+            'access_user' => $actorId,
         ]);
 
         return $statement->rowCount() === 1;
     }
 
-    public function removeGroup(int $taskId, int $groupId): bool
+    public function removeGroup(int $taskId, int $groupId, int $actorId): bool
     {
         $statement = $this->pdo->prepare(
-            "DELETE gt
-             FROM groups_tasks gt
-             JOIN tasks t ON t.id = gt.task_id
-             WHERE gt.task_id = :task_id
-               AND gt.group_id = :group_id
-               AND t.deleted_at IS NULL"
+            "DELETE FROM groups_tasks
+             WHERE task_id = :task_id AND group_id = :group_id AND EXISTS (" .
+             AccessService::taskWriteQuery(AccessService::PROJECT_MANAGE_SQL) . ")"
         );
         $statement->execute([
             'task_id' => $taskId,
-            'group_id' => $groupId
+            'group_id' => $groupId,
+            'write_task' => $taskId,
+            'access_user' => $actorId,
         ]);
 
         return $statement->rowCount() > 0;
     }
 
-    public function removeUserFromGroup(int $userId, int $groupId): bool
+    public function removeUserFromGroup(int $userId, int $groupId, int $actorId): bool
     {
-        $stmt = $this->pdo->prepare('DELETE FROM users_groups WHERE user_id = :user_id AND groups_id = :group_id');
-        $stmt->execute(['user_id' => $userId, 'group_id' => $groupId]);
+        $stmt = $this->pdo->prepare('DELETE FROM users_groups WHERE user_id = :user_id AND groups_id = :group_id
+            AND EXISTS (SELECT 1 FROM groups g ' . AccessService::ACTOR_JOIN . '
+                WHERE g.id = users_groups.groups_id AND ' . AccessService::GROUP_MANAGE_SQL . ')');
+        $stmt->execute(['user_id' => $userId, 'group_id' => $groupId, 'access_user' => $actorId]);
         return $stmt->rowCount() === 1;
     }
 

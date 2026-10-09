@@ -63,12 +63,29 @@ final class AccessService {
     // Checks if the active actor can manage the task group (project not archived and manage project).
     public const TASK_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND ' . self::PROJECT_MANAGE_SQL . ')';
 
+    public const CONTAINER_MANAGE_SQL = '(' . self::PROJECT_MANAGE_SQL .
+        ' OR (' . self::MEMBER_SQL . ' AND c.created_by = a.id))';
+
+    public const GROUP_MANAGE_SQL = '(g.personal_user_id IS NULL
+        AND (g.project_id IS NULL OR EXISTS (
+            SELECT 1 FROM projects active_p WHERE active_p.id = g.project_id AND active_p.archived_at IS NULL))
+        AND (a.is_admin = 1 OR EXISTS (
+            SELECT 1 FROM projects p WHERE p.id = g.project_id
+              AND p.archived_at IS NULL AND p.created_by = a.id)))';
+
     // Checks if the active actor can view the group (admin, global, personal, or project member).
     public const GROUP_VIEW_SQL = '(a.is_admin = 1 OR g.is_global = 1 OR g.personal_user_id = a.id
         OR EXISTS (SELECT 1 FROM projects p
             WHERE p.id = g.project_id AND p.archived_at IS NULL AND ' . self::PROJECT_VIEW_SQL . '))';
 
     public function __construct(private PDO $pdo) {}
+
+    public static function taskWriteQuery(string $itemRule = '1 = 1'): string {
+        return 'SELECT t.id FROM tasks t JOIN containers c ON c.id = t.container_id
+            JOIN projects p ON p.id = c.project_id ' . self::ACTOR_JOIN . '
+            WHERE t.id = :write_task AND t.deleted_at IS NULL AND c.deleted_at IS NULL
+              AND p.archived_at IS NULL AND ' . self::TASK_VIEW_SQL . ' AND (' . $itemRule . ')';
+    }
 
     // Checks if the active actor has creator-level access (admin, creator of the project, or member).
     public static function creatorAccessSql(): string {
@@ -120,8 +137,7 @@ final class AccessService {
     }
 
     public function canManageContainer(int $userId, int $containerId): bool {
-        return $this->container($userId, $containerId, '(' . self::PROJECT_MANAGE_SQL .
-            ' OR (' . self::MEMBER_SQL . ' AND c.created_by = a.id))');
+        return $this->container($userId, $containerId, self::CONTAINER_MANAGE_SQL);
     }
 
     public function accessibleTask(int $userId, int $taskId): ?array {
@@ -175,12 +191,7 @@ final class AccessService {
 
     public function canManageGroup(int $userId, int $groupId): bool {
         return $this->exists('SELECT 1 FROM groups g ' . self::ACTOR_JOIN . '
-            WHERE g.id = :id AND g.personal_user_id IS NULL
-              AND (g.project_id IS NULL OR EXISTS (
-                  SELECT 1 FROM projects active_p WHERE active_p.id = g.project_id AND active_p.archived_at IS NULL))
-              AND (a.is_admin = 1 OR EXISTS (
-                SELECT 1 FROM projects p WHERE p.id = g.project_id
-                  AND p.archived_at IS NULL AND p.created_by = a.id))',
+            WHERE g.id = :id AND ' . self::GROUP_MANAGE_SQL,
             ['access_user' => $userId, 'id' => $groupId]);
     }
 

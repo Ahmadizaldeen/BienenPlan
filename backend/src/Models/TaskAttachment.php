@@ -55,7 +55,8 @@ class TaskAttachment {
     public function add(int $taskId, int $userId, string $name, string $stored, string $mime, int $size): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO task_attachments (task_id, uploaded_by, original_name, stored_name, mime_type, size_bytes)
-             VALUES (:task_id, :uploaded_by, :original_name, :stored_name, :mime_type, :size_bytes)'
+             SELECT :task_id, :uploaded_by, :original_name, :stored_name, :mime_type, :size_bytes
+             WHERE EXISTS (' . AccessService::taskWriteQuery() . ')'
         );
         $stmt->execute([
             'task_id' => $taskId,
@@ -64,15 +65,23 @@ class TaskAttachment {
             'stored_name' => $stored,
             'mime_type' => $mime,
             'size_bytes' => $size,
+            'write_task' => $taskId,
+            'access_user' => $userId,
         ]);
+        if ($stmt->rowCount() !== 1) {
+            throw new \DomainException('Aufgabe oder Berechtigung inzwischen geaendert');
+        }
         return (int) $this->pdo->lastInsertId();
     }
 
-    public function remove(int $taskId, int $id): void {
+    public function remove(int $taskId, int $id, int $userId): bool {
         $stmt = $this->pdo->prepare(
             'UPDATE task_attachments SET deleted_at = NOW()
-             WHERE task_id = :task_id AND id = :id AND deleted_at IS NULL'
+             WHERE task_id = :task_id AND id = :id AND deleted_at IS NULL AND EXISTS (' .
+             AccessService::taskWriteQuery(AccessService::PROJECT_MANAGE_SQL .
+                 ' OR task_attachments.uploaded_by = a.id') . ')'
         );
-        $stmt->execute(['task_id' => $taskId, 'id' => $id]);
+        $stmt->execute(['task_id' => $taskId, 'id' => $id, 'write_task' => $taskId, 'access_user' => $userId]);
+        return $stmt->rowCount() === 1;
     }
 }

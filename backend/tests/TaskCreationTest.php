@@ -61,6 +61,13 @@ try {
     $controller = new TaskController($tasks, new TaskAttachmentController($attachments));
     $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/tasks')->withAttribute('user_id', 2);
     $payload = ['title' => 'Without selected group', 'container_id' => 1, 'created_by' => 4];
+    $creationRace = new class($db) extends Task {
+        public function create(array $data): int {
+            throw new DomainException('Container nicht gefunden');
+        }
+    };
+    $creationRaceController = new TaskController($creationRace, new TaskAttachmentController($attachments));
+    check($creationRaceController->create($request->withParsedBody($payload), new Response())->getStatusCode() === 404, 'Creation-time access loss is translated into 404, not a server error');
     $response = $controller->create($request->withParsedBody($payload), new Response());
     check($response->getStatusCode() === 201, 'Member can create without a selected group in someone else\'s project');
     $id = json_decode((string) $response->getBody(), true)['id'];
@@ -91,8 +98,8 @@ try {
     check(!$tasks->isVisibleToUser($id, 4), 'Membership in another creator\'s personal group cannot bypass the project allowlist');
     check($tasks->getAllByUser(4) === [], 'List also rejects unrelated personal-group members');
     check($subtasks->accessibleTask($id, 4) === null && $attachments->accessibleTask($id, 4) === null, 'Nested resources also reject unrelated personal-group members');
-    check(!$groups->assignGroup($id, 22), 'An unrelated personal group cannot be assigned');
-    check($groups->assignGroup($id, 10), 'Normal project group can still be assigned');
+    check(!$groups->assignGroup($id, 22, 1), 'An unrelated personal group cannot be assigned');
+    check($groups->assignGroup($id, 10, 1), 'Normal project group can still be assigned');
     check($tasks->isVisibleToUser($id, 3), 'Assigned project group grants task access');
     $assignedIds = explode(',', $tasks->getAllByUser(3)[0]['group_ids']);
     check($assignedIds === ['10', '21'], 'Group member receives complete assignment metadata');

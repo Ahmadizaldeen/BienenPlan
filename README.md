@@ -74,6 +74,24 @@ und `can_change_status`. `creator_has_project_access` kennzeichnet, ob der
 historische Ersteller noch Zugriff auf das Projekt hat. Bestehende
 Unteraufgaben- und Anhang-`can_*`-Felder bleiben erhalten.
 
+Task-Status und Task-Inhalte pruefen Projektzustand und Aktionsrechte erneut
+direkt im SQL-UPDATE. Wird der Zugriff zwischen Controller-Pruefung und
+Schreibaktion entzogen, liefert die API `409`, ohne die Task zu aendern.
+Unveraenderte, weiterhin berechtigte Updates bleiben erfolgreich.
+Ein Zugriffsverlust bei der erneuten Pruefung waehrend der Task-Erstellung
+liefert `404`; eine fehlende persoenliche Standardgruppe bleibt ein Serverfehler.
+Lokale und globale Gruppennamen muessen nach dem Trimmen 1 bis 100
+Unicode-Codepoints enthalten; ungueltige Typen, UTF-8 oder Laengen liefern `400`.
+Unteraufgaben und Anhaenge pruefen dieselben Task-Rechte ebenfalls beim
+INSERT/UPDATE. Ein zwischenzeitlicher Zugriffsverlust liefert `409`.
+Abgebrochene Uploads rollen Datenbankeintraege zurueck und entfernen bereits
+verschobene Dateien; verbotene Anhang-Loeschungen entfernen keine Datei.
+Auch Container-, Projekt- und Gruppen-Schreibaktionen pruefen den aktuellen
+Akteur und Projektzustand im mutierenden Statement, statt sich allein auf eine
+vorherige Controller-Pruefung zu verlassen. Die Model-Schreibmethoden benoetigen
+deshalb die authentifizierte Akteur-ID. Bei Projektgruppen-Entfernung werden
+Task-Zuweisungen zurueckgerollt, wenn die Projektzuordnung nicht entfernt werden kann.
+
 Neue Endpunkte:
 
 | Endpunkt | Verhalten |

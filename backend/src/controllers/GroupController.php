@@ -65,13 +65,12 @@ class GroupController
         if (!$this->groupModel->access()->isAdmin((int) $request->getAttribute('user_id'))) {
             return $this->jsonResponse($response, ['error' => 'Nur Admin darf globale Gruppen erstellen'], 403);
         }
-        $data = (array) $request->getParsedBody();
-        $name = trim((string) ($data['name'] ?? ''));
-        $rawUserIds = $data['user_ids'] ?? [];
-
-        if (!$name) {
-            return $this->jsonResponse($response, ['error' => 'Name der Gruppe ist erforderlich'], 400);
+        $data = $request->getParsedBody();
+        if (!is_array($data) || !Group::isValidName($data['name'] ?? null)) {
+            return $this->jsonResponse($response, ['error' => 'Gruppenname muss 1 bis 100 Zeichen enthalten'], 400);
         }
+        $name = trim($data['name']);
+        $rawUserIds = $data['user_ids'] ?? [];
 
         // "Personal user ..." ist für persönliche Gruppen reserviert (verhindert vorgetäuschte Zuordnungen).
         if (Group::isReservedName($name)) {
@@ -92,7 +91,9 @@ class GroupController
         $userIds = array_values(array_unique($userIds));
 
         try {
-            $groupId = $this->groupModel->createGroup($name, $userIds);
+            $groupId = $this->groupModel->createGroup($name, $userIds, (int) $request->getAttribute('user_id'));
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 409);
         } catch (\InvalidArgumentException $exception) {
             return $this->jsonResponse($response, ['error' => $exception->getMessage()], 400);
         } catch (\PDOException $exception) {
@@ -141,7 +142,7 @@ class GroupController
         if ($denied = $this->taskGroupPermission($request, $response, $taskId)) return $denied;
 
         try {
-            $assigned = $this->groupModel->assignGroup($taskId, $groupId);
+            $assigned = $this->groupModel->assignGroup($taskId, $groupId, (int) $request->getAttribute('user_id'));
         } catch (\PDOException $exception) {
             if ($exception->getCode() === '23000' && ($exception->errorInfo[1] ?? null) === 1062) {
                 return $this->jsonResponse($response, ['error' => 'Gruppe ist diesem Task bereits zugeordnet'], 409);
@@ -167,7 +168,7 @@ class GroupController
         }
         if ($denied = $this->taskGroupPermission($request, $response, $taskId)) return $denied;
 
-        if (!$this->groupModel->removeGroup($taskId, $groupId)) {
+        if (!$this->groupModel->removeGroup($taskId, $groupId, (int) $request->getAttribute('user_id'))) {
             return $this->jsonResponse($response, ['error' => 'Task oder Gruppenzuweisung nicht gefunden'], 404);
         }
 
@@ -185,7 +186,7 @@ class GroupController
 
         if ($denied = $this->groupPermission($request, $response, $groupId, true)) return $denied;
         try {
-            if (!$this->groupModel->addUserToGroup($userId, $groupId)) {
+            if (!$this->groupModel->addUserToGroup($userId, $groupId, (int) $request->getAttribute('user_id'))) {
                 return $this->jsonResponse($response, ['error' => 'Benutzer nicht gefunden'], 404);
             }
         } catch (\PDOException $exception) {
@@ -292,7 +293,7 @@ class GroupController
             return $this->jsonResponse($response, ['error' => 'Ungueltige User- oder Gruppen-ID'], 400);
         }
         if ($denied = $this->groupPermission($request, $response, $groupId, true)) return $denied;
-        if (!$this->groupModel->removeUserFromGroup($userId, $groupId)) {
+        if (!$this->groupModel->removeUserFromGroup($userId, $groupId, (int) $request->getAttribute('user_id'))) {
             return $this->jsonResponse($response, ['error' => 'Mitgliedschaft nicht gefunden'], 404);
         }
         return $this->jsonResponse($response, ['message' => 'Mitgliedschaft entfernt']);

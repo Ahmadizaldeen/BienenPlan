@@ -55,7 +55,11 @@ class SubtaskController {
         if (!is_array($data) || !$this->validTitle($data['title'] ?? null)) {
             return $this->json($response, ['error' => 'Titel muss 1 bis 100 Zeichen enthalten'], 400);
         }
-        $id = $this->subtasks->create($taskId, $userId, trim($data['title']));
+        try {
+            $id = $this->subtasks->create($taskId, $userId, trim($data['title']));
+        } catch (\DomainException $exception) {
+            return $this->json($response, ['error' => $exception->getMessage()], 409);
+        }
         return $this->json($response, $this->item($this->subtasks->byId($taskId, $id), $task, $userId), 201);
     }
 
@@ -81,7 +85,9 @@ class SubtaskController {
         if (array_key_exists('completed', $data) && !is_bool($data['completed'])) {
             return $this->json($response, ['error' => 'completed muss ein Boolean sein'], 400);
         }
-        $this->subtasks->update($taskId, $id, $data);
+        if (!$this->subtasks->update($taskId, $id, $data, $userId)) {
+            return $this->json($response, ['error' => 'Teilaufgabe oder Berechtigung inzwischen geaendert'], 409);
+        }
         return $this->json($response, $this->item($this->subtasks->byId($taskId, $id), $task, $userId));
     }
 
@@ -94,7 +100,9 @@ class SubtaskController {
         $item = $this->subtasks->byId($taskId, $id);
         if (!$item) return $this->json($response, ['error' => 'Teilaufgabe nicht gefunden'], 404);
         if (!$this->item($item, $task, $userId)['can_delete']) return $this->json($response, ['error' => 'Keine Berechtigung zum Loeschen'], 403);
-        $this->subtasks->delete($taskId, $id, $userId);
+        if (!$this->subtasks->delete($taskId, $id, $userId)) {
+            return $this->json($response, ['error' => 'Teilaufgabe oder Berechtigung inzwischen geaendert'], 409);
+        }
         return $this->json($response, ['message' => 'Teilaufgabe geloescht']);
     }
 }
