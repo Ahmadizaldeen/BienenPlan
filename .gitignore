@@ -2,10 +2,6 @@
 *.dia~
 backend/vendor
 backend/.env
-tests/
-!backend/tests/
-backend/tests/*
-!backend/tests/SubtasksTest.php
 backend/src/Services/Env.php
 backend/data/sql/seeds/seeds.sql
 
@@ -18,3 +14,4 @@ backend/public/uploads/
 backend/storage/task_attachments/
 .claude/agents/DOCS.agent.md
 .vscode/settings.json
+backend/src/code_counter.py

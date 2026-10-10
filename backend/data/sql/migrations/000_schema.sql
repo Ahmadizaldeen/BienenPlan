@@ -10,6 +10,7 @@ CREATE TABLE users (
     name          VARCHAR(100) NOT NULL,
     email         VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
+    is_admin      BOOLEAN NOT NULL DEFAULT FALSE, -- direktes Admin-Rechte, Entwicklungshilfe 
     picture       VARCHAR(255), -- URL zu Profilbild
     created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -24,8 +25,16 @@ CREATE TABLE users (
 -- ============================================
 CREATE TABLE groups (
     id         INT AUTO_INCREMENT PRIMARY KEY,
-    name       VARCHAR(100) NOT NULL UNIQUE,
+    name       VARCHAR(100) NOT NULL, -- Gruppenname kann mehrfach vorkommen
     personal_user_id INT NULL UNIQUE, -- Verweis auf eigene persönliche Gruppe
+    project_id INT NULL,
+    is_global BOOLEAN NOT NULL DEFAULT FALSE, 
+    name_scope INT GENERATED ALWAYS AS (COALESCE(project_id, 0)) STORED, -- Scope für eindeutige Namensgebung innerhalb eines Projekts
+    UNIQUE KEY uq_groups_scope_name (name_scope, name),
+    CONSTRAINT chk_groups_scope CHECK (
+        (personal_user_id IS NULL OR (project_id IS NULL AND is_global = FALSE))
+        AND (project_id IS NULL OR is_global = FALSE)
+    ),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (personal_user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -57,6 +66,20 @@ CREATE TABLE projects (
     archived_by INT NULL,
     FOREIGN KEY (created_by)  REFERENCES users(id),
     FOREIGN KEY (archived_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- PROJECTS_GROUPS (n:m relationship)
+-- ============================================
+ALTER TABLE groups ADD CONSTRAINT fk_groups_project
+    FOREIGN KEY (project_id) REFERENCES projects(id);
+
+CREATE TABLE projects_groups (
+    project_id INT NOT NULL,
+    group_id INT NOT NULL,
+    PRIMARY KEY (project_id, group_id),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================

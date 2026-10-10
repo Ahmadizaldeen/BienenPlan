@@ -14,17 +14,18 @@ class SubtaskController {
         return $response->withHeader('Content-Type', 'application/json')->withStatus($status);
     }
 
-    private function isOwner(array $task, int $userId): bool {
-        return (int) $task['container_owner'] === $userId || (int) $task['project_owner'] === $userId;
+    private function canCreate(array $task, int $userId): bool {
+        return $this->subtasks->access()->canCreateSubtask($task, $userId);
     }
 
     private function item(array $item, array $task, int $userId): array {
-        $canManage = $this->isOwner($task, $userId) || (int) ($item['created_by'] ?? 0) === $userId;
+        $canEdit = $this->subtasks->access()->canEditSubtask($task, $item, $userId);
+        $canDelete = $this->subtasks->access()->canDeleteSubtask($task, $item, $userId);
         return [
             'id' => (int) $item['id'], 'task_id' => (int) $item['task_id'],
             'title' => $item['title'], 'completed' => (bool) $item['completed'],
             'created_by' => isset($item['created_by']) ? (int) $item['created_by'] : null,
-            'can_edit' => $canManage, 'can_delete' => $canManage, 'can_complete' => true,
+            'can_edit' => $canEdit, 'can_delete' => $canDelete, 'can_complete' => (bool) $task['can_write'],
         ];
     }
 
@@ -39,7 +40,7 @@ class SubtaskController {
         $task = $this->subtasks->accessibleTask((int) $args['taskId'], $userId);
         if (!$task) return $this->json($response, ['error' => 'Aufgabe nicht gefunden'], 404);
         return $this->json($response, [
-            'can_create' => $this->isOwner($task, $userId),
+            'can_create' => $this->canCreate($task, $userId),
             'subtasks' => array_map(fn(array $item): array => $this->item($item, $task, $userId), $this->subtasks->byTask((int) $args['taskId'])),
         ]);
     }
@@ -49,12 +50,16 @@ class SubtaskController {
         $taskId = (int) $args['taskId'];
         $task = $this->subtasks->accessibleTask($taskId, $userId);
         if (!$task) return $this->json($response, ['error' => 'Aufgabe nicht gefunden'], 404);
-        if (!$this->isOwner($task, $userId)) return $this->json($response, ['error' => 'Keine Berechtigung zum Erstellen'], 403);
+        if (!$this->canCreate($task, $userId)) return $this->json($response, ['error' => 'Keine Berechtigung zum Erstellen'], 403);
         $data = $request->getParsedBody();
         if (!is_array($data) || !$this->validTitle($data['title'] ?? null)) {
             return $this->json($response, ['error' => 'Titel muss 1 bis 100 Zeichen enthalten'], 400);
         }
-        $id = $this->subtasks->create($taskId, $userId, trim($data['title']));
+        try {
+            $id = $this->subtasks->create($taskId, $userId, trim($data['title']));
+        } catch (\DomainException $exception) {
+            return $this->json($response, ['error' => $exception->getMessage()], 409);
+        }
         return $this->json($response, $this->item($this->subtasks->byId($taskId, $id), $task, $userId), 201);
     }
 
@@ -66,6 +71,7 @@ class SubtaskController {
         if (!$task) return $this->json($response, ['error' => 'Aufgabe nicht gefunden'], 404);
         $item = $this->subtasks->byId($taskId, $id);
         if (!$item) return $this->json($response, ['error' => 'Teilaufgabe nicht gefunden'], 404);
+        if (!$task['can_write']) return $this->json($response, ['error' => 'Archivierte Projekte sind schreibgeschuetzt'], 403);
         $data = $request->getParsedBody();
         if (!is_array($data) || $data === [] || array_diff(array_keys($data), ['title', 'completed'])) {
             return $this->json($response, ['error' => 'Nur title und completed sind erlaubt'], 400);
@@ -79,7 +85,9 @@ class SubtaskController {
         if (array_key_exists('completed', $data) && !is_bool($data['completed'])) {
             return $this->json($response, ['error' => 'completed muss ein Boolean sein'], 400);
         }
-        $this->subtasks->update($taskId, $id, $data);
+        if (!$this->subtasks->update($taskId, $id, $data, $userId)) {
+            return $this->json($response, ['error' => 'Teilaufgabe oder Berechtigung inzwischen geaendert'], 409);
+        }
         return $this->json($response, $this->item($this->subtasks->byId($taskId, $id), $task, $userId));
     }
 
@@ -92,7 +100,9 @@ class SubtaskController {
         $item = $this->subtasks->byId($taskId, $id);
         if (!$item) return $this->json($response, ['error' => 'Teilaufgabe nicht gefunden'], 404);
         if (!$this->item($item, $task, $userId)['can_delete']) return $this->json($response, ['error' => 'Keine Berechtigung zum Loeschen'], 403);
-        $this->subtasks->delete($taskId, $id, $userId);
+        if (!$this->subtasks->delete($taskId, $id, $userId)) {
+            return $this->json($response, ['error' => 'Teilaufgabe oder Berechtigung inzwischen geaendert'], 409);
+        }
         return $this->json($response, ['message' => 'Teilaufgabe geloescht']);
     }
 }

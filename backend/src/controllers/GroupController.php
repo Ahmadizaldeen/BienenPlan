@@ -55,20 +55,22 @@ class GroupController
     public function getAllGroups(Request $request, Response $response, array $args): Response
     {
         return $this->jsonResponse($response, [
-            'groups' => $this->groupModel->getAllGroups()
+            'groups' => $this->groupModel->getAllGroups((int) $request->getAttribute('user_id'))
         ]);
     }
 
     // POST create a new Group
     public function createGroup(Request $request, Response $response, array $args): Response
     {
-        $data = (array) $request->getParsedBody();
-        $name = trim((string) ($data['name'] ?? ''));
-        $rawUserIds = $data['user_ids'] ?? [];
-
-        if (!$name) {
-            return $this->jsonResponse($response, ['error' => 'Name der Gruppe ist erforderlich'], 400);
+        if (!$this->groupModel->access()->isAdmin((int) $request->getAttribute('user_id'))) {
+            return $this->jsonResponse($response, ['error' => 'Nur Admin darf globale Gruppen erstellen'], 403);
         }
+        $data = $request->getParsedBody();
+        if (!is_array($data) || !Group::isValidName($data['name'] ?? null)) {
+            return $this->jsonResponse($response, ['error' => 'Gruppenname muss 1 bis 100 Zeichen enthalten'], 400);
+        }
+        $name = trim($data['name']);
+        $rawUserIds = $data['user_ids'] ?? [];
 
         // "Personal user ..." ist für persönliche Gruppen reserviert (verhindert vorgetäuschte Zuordnungen).
         if (Group::isReservedName($name)) {
@@ -89,7 +91,11 @@ class GroupController
         $userIds = array_values(array_unique($userIds));
 
         try {
-            $groupId = $this->groupModel->createGroup($name, $userIds);
+            $groupId = $this->groupModel->createGroup($name, $userIds, (int) $request->getAttribute('user_id'));
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 409);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 400);
         } catch (\PDOException $exception) {
             if ($exception->getCode() === '23000' && ($exception->errorInfo[1] ?? null) === 1062) {
                 return $this->jsonResponse($response, ['error' => 'Eine Gruppe mit diesem Namen existiert bereits'], 409);
@@ -116,6 +122,9 @@ class GroupController
         if ($taskId === null) {
             return $this->jsonResponse($response, ['error' => 'Ungültige Task-ID'], 400);
         }
+        if (!$this->groupModel->access()->canViewTask((int) $request->getAttribute('user_id'), $taskId)) {
+            return $this->jsonResponse($response, ['error' => 'Task nicht gefunden'], 404);
+        }
 
         return $this->jsonResponse($response, [
             'groups' => $this->groupModel->getGroupsForTask($taskId) 
@@ -130,9 +139,10 @@ class GroupController
         if ($taskId === null || $groupId === null) {
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
+        if ($denied = $this->taskGroupPermission($request, $response, $taskId, $groupId)) return $denied;
 
         try {
-            $assigned = $this->groupModel->assignGroup($taskId, $groupId);
+            $assigned = $this->groupModel->assignGroup($taskId, $groupId, (int) $request->getAttribute('user_id'));
         } catch (\PDOException $exception) {
             if ($exception->getCode() === '23000' && ($exception->errorInfo[1] ?? null) === 1062) {
                 return $this->jsonResponse($response, ['error' => 'Gruppe ist diesem Task bereits zugeordnet'], 409);
@@ -156,8 +166,9 @@ class GroupController
         if ($taskId === null || $groupId === null) {
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
+        if ($denied = $this->taskGroupPermission($request, $response, $taskId, $groupId)) return $denied;
 
-        if (!$this->groupModel->removeGroup($taskId, $groupId)) {
+        if (!$this->groupModel->removeGroup($taskId, $groupId, (int) $request->getAttribute('user_id'))) {
             return $this->jsonResponse($response, ['error' => 'Task oder Gruppenzuweisung nicht gefunden'], 404);
         }
 
@@ -173,7 +184,17 @@ class GroupController
             return $this->jsonResponse($response, ['error' => 'Ungültige User- oder Gruppen-ID'], 400);
         }
 
-        $this->groupModel->addUserToGroup($userId, $groupId);
+        if ($denied = $this->groupPermission($request, $response, $groupId, true)) return $denied;
+        try {
+            if (!$this->groupModel->addUserToGroup($userId, $groupId, (int) $request->getAttribute('user_id'))) {
+                return $this->jsonResponse($response, ['error' => 'Benutzer nicht gefunden'], 404);
+            }
+        } catch (\PDOException $exception) {
+            if ($exception->getCode() === '23000') {
+                return $this->jsonResponse($response, ['error' => 'Mitgliedschaft besteht bereits'], 409);
+            }
+            throw $exception;
+        }
         return $this->jsonResponse($response, ['message' => 'User der Gruppe hinzugefügt'], 201);
     }
 
@@ -185,6 +206,7 @@ class GroupController
         if ($groupId === null) {
             return $this->jsonResponse($response, ['error' => 'Ungültige Gruppen-ID'], 400);
         }
+        if ($denied = $this->groupPermission($request, $response, $groupId)) return $denied;
 
         return $this->jsonResponse($response, [
             'users' => $this->groupModel->getUsersInGroup($groupId)
@@ -201,7 +223,7 @@ class GroupController
         }
 
         return $this->jsonResponse($response, [
-            'groups' => $this->groupModel->getGroupsForUser($userId)
+            'groups' => $this->groupModel->getGroupsForUser($userId, (int) $request->getAttribute('user_id'))
         ]);
     }
 
@@ -213,6 +235,7 @@ class GroupController
         if ($groupId === null) {
             return $this->jsonResponse($response, ['error' => 'Ungültige Gruppen-ID'], 400);
         }
+        if ($denied = $this->groupPermission($request, $response, $groupId)) return $denied;
 
         $group = $this->groupModel->findGroupById($groupId);
         if ($group === false) {
@@ -234,5 +257,45 @@ class GroupController
             'group_id' => (int) $group['id'],
             'user' => $user
         ]);
+    }
+
+    private function taskGroupPermission(Request $request, Response $response, int $taskId, int $groupId): ?Response
+    {
+        $access = $this->groupModel->access();
+        $userId = (int) $request->getAttribute('user_id');
+        if (!$access->canViewTask($userId, $taskId)) {
+            return $this->jsonResponse($response, ['error' => 'Task nicht gefunden'], 404);
+        }
+        if (!$access->canManageTaskGroup($userId, $taskId, $groupId)) {
+            return $this->jsonResponse($response, ['error' => 'Keine Berechtigung'], 403);
+        }
+        return null;
+    }
+
+    private function groupPermission(Request $request, Response $response, int $groupId, bool $manage = false): ?Response
+    {
+        $access = $this->groupModel->access();
+        $userId = (int) $request->getAttribute('user_id');
+        if (!$access->canViewGroup($userId, $groupId)) {
+            return $this->jsonResponse($response, ['error' => 'Gruppe nicht gefunden'], 404);
+        }
+        if ($manage && !$access->canManageGroup($userId, $groupId)) {
+            return $this->jsonResponse($response, ['error' => 'Keine Berechtigung'], 403);
+        }
+        return null;
+    }
+
+    public function removeUserFromGroup(Request $request, Response $response, array $args): Response
+    {
+        $userId = $this->getRouteId($args, 'userId');
+        $groupId = $this->getRouteId($args, 'groupId');
+        if ($userId === null || $groupId === null) {
+            return $this->jsonResponse($response, ['error' => 'Ungueltige User- oder Gruppen-ID'], 400);
+        }
+        if ($denied = $this->groupPermission($request, $response, $groupId, true)) return $denied;
+        if (!$this->groupModel->removeUserFromGroup($userId, $groupId, (int) $request->getAttribute('user_id'))) {
+            return $this->jsonResponse($response, ['error' => 'Mitgliedschaft nicht gefunden'], 404);
+        }
+        return $this->jsonResponse($response, ['message' => 'Mitgliedschaft entfernt']);
     }
 }

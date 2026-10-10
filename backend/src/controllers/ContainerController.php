@@ -23,7 +23,13 @@ class ContainerController {
     // GET /api/containers
     public function getAll(Request $request, Response $response): Response {
         $userId = (int) $request->getAttribute('user_id');
-        $containers = $this->containerModel->getAll($userId);
+        $query = $request->getQueryParams();
+        $projectId = isset($query['project_id']) ? filter_var($query['project_id'], FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1]]) : null;
+        if ($projectId === false) {
+            return $this->jsonResponse($response, ['error' => 'Ungueltige project_id'], 400);
+        }
+        $containers = $this->containerModel->getAll($userId, $projectId);
         return $this->jsonResponse($response, $containers);
     }
 
@@ -56,6 +62,9 @@ class ContainerController {
         if (empty($projectId)) {
             return $this->jsonResponse($response, ['error' => 'project_id ist erforderlich.'], 400);
         }
+        if (!$this->containerModel->canCreateInProject($projectId, (int) $userId)) {
+            return $this->jsonResponse($response, ['error' => 'Projekt nicht gefunden'], 404);
+        }
 
         try {
             $id = $this->containerModel->create([
@@ -73,11 +82,10 @@ class ContainerController {
                     'project_id' => $projectId,
                 ],
             ], 201);
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 404);
         } catch (\PDOException $e) {
-            return $this->jsonResponse($response, [
-                'error' => 'DB Fehler beim Erstellen des Containers',
-                'debug_message' => $e->getMessage()
-            ], 400);
+            throw $e;
         }
     }
 
@@ -91,6 +99,9 @@ class ContainerController {
         if (!$container || !$this->containerModel->isVisibleToUser($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Container nicht gefunden.'], 404);
         }
+        if (!$this->containerModel->canManage($id, $userId)) {
+            return $this->jsonResponse($response, ['error' => 'Keine Berechtigung'], 403);
+        }
 
         $title = trim((string) ($data['title'] ?? ''));
 
@@ -99,13 +110,12 @@ class ContainerController {
         }
 
         try {
-            $this->containerModel->update($id, $title);
+            if (!$this->containerModel->update($id, $title, $userId)) {
+                return $this->jsonResponse($response, ['error' => 'Container oder Berechtigung inzwischen geaendert'], 409);
+            }
             return $this->jsonResponse($response, ['message' => 'Container aktualisiert.']);
         } catch (\PDOException $e) {
-            return $this->jsonResponse($response, [
-                'error' => 'DB Fehler',
-                'debug_message' => $e->getMessage()
-            ], 400);
+            throw $e;
         }
     }
 
@@ -118,15 +128,19 @@ class ContainerController {
         if (!$container || !$this->containerModel->isVisibleToUser($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Container nicht gefunden.'], 404);
         }
+        if (!$this->containerModel->canManage($id, $userId)) {
+            return $this->jsonResponse($response, ['error' => 'Keine Berechtigung'], 403);
+        }
 
         try {
-            $this->containerModel->delete($id);
+            if (!$this->containerModel->delete($id, $userId)) {
+                return $this->jsonResponse($response, ['error' => 'Container nicht gefunden'], 404);
+            }
             return $this->jsonResponse($response, ['message' => 'Container gelöscht.']);
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 409);
         } catch (\PDOException $e) {
-            return $this->jsonResponse($response, [
-                'error' => 'DB Fehler beim Löschen',
-                'debug_message' => $e->getMessage()
-            ], 400);
+            throw $e;
         }
     }
 }
