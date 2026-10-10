@@ -76,6 +76,44 @@ check(count($items) === 2, 'Both files must be persisted');
 check($items[0]['original_name'] === 'one.txt', 'Client path must not be kept as filename');
 check($items[0]['can_delete'] == 1, 'Uploader can delete');
 
+$db->exec('INSERT INTO users (id) VALUES (4); INSERT INTO users_groups VALUES (4, 1)');
+$groupMember = $request->withAttribute('user_id', 4);
+$memberArgs = $args + ['attachmentId' => (string) $items[0]['id']];
+check($model->access()->canEditTask(4, 1), 'Assigned local-group member can edit task fields');
+check($controller->index($groupMember, new Response(), $args)->getStatusCode() === 200, 'Other assigned group member can list attachments');
+check((string) $controller->download($groupMember, new Response(), $memberArgs)->getBody() === 'First file', 'Other assigned group member can download uploader attachment');
+check($controller->delete($groupMember, new Response(), $memberArgs)->getStatusCode() === 403, 'Assignment does not grant deletion of another member attachment');
+$memberUpload = $groupMember->withUploadedFiles(['files' => [fileUpload('member.txt', 'Member upload')]]);
+$memberResponse = $controller->upload($memberUpload, new Response(), $args);
+check($memberResponse->getStatusCode() === 201, 'Assigned member without task edit permission can upload');
+$memberItem = json_decode((string) $memberResponse->getBody(), true)['attachments'][0];
+$memberAttachmentArgs = $args + ['attachmentId' => (string) $memberItem['id']];
+$db->exec('DELETE FROM users_groups WHERE user_id = 4');
+check($controller->download($groupMember, new Response(), $memberArgs)->getStatusCode() === 404, 'Revoked membership denies attachment download');
+check($controller->upload($memberUpload, new Response(), $args)->getStatusCode() === 404, 'Revoked membership denies attachment upload');
+$db->exec('INSERT INTO users_groups VALUES (4, 1)');
+check($controller->delete($groupMember, new Response(), $memberAttachmentArgs)->getStatusCode() === 200, 'Member can delete own upload');
+
+$db->exec('INSERT INTO groups (id, personal_user_id, project_id, is_global) VALUES (2, 2, NULL, 0);
+    INSERT INTO tasks (id, container_id, created_by) VALUES (2, 1, 1);
+    INSERT INTO groups_tasks (task_id, group_id) VALUES (2, 2)');
+$personalAssignee = $request->withAttribute('user_id', 2);
+check(!$model->access()->canViewProject(2, 1) && $model->access()->canViewTask(2, 2),
+    'Assigned personal group grants task access without project access');
+$personalUploadRequest = $personalAssignee->withUploadedFiles([
+    'files' => [fileUpload('personal.txt', 'Personal assignee upload')],
+]);
+$personalUpload = $controller->upload($personalUploadRequest, new Response(), ['id' => '2']);
+check($personalUpload->getStatusCode() === 201, 'Personal assignee may add task attachments');
+$personalAttachment = json_decode((string) $personalUpload->getBody(), true)['attachments'][0];
+check($controller->delete(
+    $personalAssignee,
+    new Response(),
+    ['id' => '2', 'attachmentId' => (string) $personalAttachment['id']]
+)->getStatusCode() === 200, 'Uploader may remove own attachment without gaining broader task-delete rights');
+check($controller->index($personalAssignee, new Response(), ['id' => '1'])->getStatusCode() === 404,
+    'Personal assignment does not grant access to other project tasks');
+
 $uploadRace = new class($db) extends TaskAttachment {
     public function __construct(private PDO $database) { parent::__construct($database); }
     public function add(int $taskId, int $userId, string $name, string $stored, string $mime, int $size): int {

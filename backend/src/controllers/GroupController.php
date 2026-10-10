@@ -139,7 +139,7 @@ class GroupController
         if ($taskId === null || $groupId === null) {
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
-        if ($denied = $this->taskGroupPermission($request, $response, $taskId)) return $denied;
+        if ($denied = $this->taskGroupPermission($request, $response, $taskId, $groupId)) return $denied;
 
         try {
             $assigned = $this->groupModel->assignGroup($taskId, $groupId, (int) $request->getAttribute('user_id'));
@@ -166,7 +166,7 @@ class GroupController
         if ($taskId === null || $groupId === null) {
             return $this->jsonResponse($response, ['error' => 'Ungültige Task- oder Gruppen-ID'], 400);
         }
-        if ($denied = $this->taskGroupPermission($request, $response, $taskId)) return $denied;
+        if ($denied = $this->taskGroupPermission($request, $response, $taskId, $groupId)) return $denied;
 
         if (!$this->groupModel->removeGroup($taskId, $groupId, (int) $request->getAttribute('user_id'))) {
             return $this->jsonResponse($response, ['error' => 'Task oder Gruppenzuweisung nicht gefunden'], 404);
@@ -259,14 +259,14 @@ class GroupController
         ]);
     }
 
-    private function taskGroupPermission(Request $request, Response $response, int $taskId): ?Response
+    private function taskGroupPermission(Request $request, Response $response, int $taskId, int $groupId): ?Response
     {
         $access = $this->groupModel->access();
         $userId = (int) $request->getAttribute('user_id');
         if (!$access->canViewTask($userId, $taskId)) {
             return $this->jsonResponse($response, ['error' => 'Task nicht gefunden'], 404);
         }
-        if (!$access->canManageTaskGroups($userId, $taskId)) {
+        if (!$access->canManageTaskGroup($userId, $taskId, $groupId)) {
             return $this->jsonResponse($response, ['error' => 'Keine Berechtigung'], 403);
         }
         return null;

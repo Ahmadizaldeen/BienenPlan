@@ -32,7 +32,7 @@ class Group
     // Benutzernamen persönlicher Gruppen ohne Zusatz-Request pro Gruppe erhält.
     // Gleiche Regel wie resolvePersonalUserId(): FK vor Namens-Fallback ("Personal user {id}", 14 Zeichen Präfix).
     private const GROUP_COLUMNS = "g.id, g.name, g.personal_user_id, g.project_id, g.is_global,
-                pu.name AS personal_user_name, g.created_at";
+                pu.name AS personal_user_name, g.created_at, " . AccessService::GROUP_MEMBER_COUNT_SQL . " AS member_count";
     private const PERSONAL_USER_JOIN = "LEFT JOIN users pu
                 ON pu.deleted_at IS NULL
                AND pu.id = COALESCE(
@@ -168,7 +168,7 @@ class Group
                AND c.deleted_at IS NULL AND p.archived_at IS NULL
                AND pg.group_id IS NOT NULL AND g.personal_user_id IS NULL
                AND (g.is_global = 1 OR g.project_id = p.id)
-               AND " . AccessService::PROJECT_MANAGE_SQL
+               AND " . AccessService::TASK_TARGET_GROUP_MANAGE_SQL
         );
 
         $statement->execute([
@@ -183,15 +183,25 @@ class Group
 
     public function removeGroup(int $taskId, int $groupId, int $actorId): bool
     {
+        // DISTINCT materializes the assignment snapshot: MySQL forbids reading the DELETE target directly.
+        $snapshot = 'FROM (SELECT DISTINCT task_id, group_id FROM groups_tasks) ';
+        $visibility = str_replace('FROM groups_tasks ', $snapshot, AccessService::TASK_VIEW_SQL);
+        $permission = str_replace('FROM groups_tasks ', $snapshot, AccessService::TASK_TARGET_GROUP_MANAGE_SQL);
         $statement = $this->pdo->prepare(
-            "DELETE FROM groups_tasks
-             WHERE task_id = :task_id AND group_id = :group_id AND EXISTS (" .
-             AccessService::taskWriteQuery(AccessService::PROJECT_MANAGE_SQL) . ")"
+            "DELETE gt FROM groups_tasks gt
+             JOIN tasks t ON t.id = gt.task_id
+             JOIN containers c ON c.id = t.container_id
+             JOIN projects p ON p.id = c.project_id
+             JOIN groups g ON g.id = gt.group_id
+             " . AccessService::ACTOR_JOIN . "
+             WHERE gt.task_id = :task_id AND gt.group_id = :group_id
+               AND t.deleted_at IS NULL AND c.deleted_at IS NULL AND p.archived_at IS NULL
+               AND " . $visibility . "
+               AND " . $permission
         );
         $statement->execute([
             'task_id' => $taskId,
             'group_id' => $groupId,
-            'write_task' => $taskId,
             'access_user' => $actorId,
         ]);
 

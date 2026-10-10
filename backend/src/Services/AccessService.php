@@ -34,26 +34,58 @@ final class AccessService {
     public const PROJECT_VIEW_SQL = 
      '(' . self::PROJECT_MANAGE_SQL . ' OR ' . self::MEMBER_SQL . ')';
 
-    // Checks if the active actor can view the task (manage project or member with task ownership or assignment).
-    // Task ownership never bypasses revoked project membership or an unlinked team.
+    // Task creators retain access through project membership; assigned global groups
+    // grant read access, while local/personal assignments grant collaborator access.
     public const TASK_VIEW_SQL = '(' . self::PROJECT_MANAGE_SQL . ' OR (
-        ' . self::MEMBER_SQL . ' AND (
-            t.created_by = a.id OR EXISTS (
-                SELECT 1 FROM groups_tasks assignment_gt
-                JOIN projects_groups assignment_pg
-                  ON assignment_pg.group_id = assignment_gt.group_id AND assignment_pg.project_id = p.id
-                JOIN groups assignment_g ON assignment_g.id = assignment_gt.group_id
-                JOIN users_groups assignment_ug ON assignment_ug.groups_id = assignment_g.id
-                WHERE assignment_gt.task_id = t.id AND assignment_ug.user_id = a.id
-                  AND assignment_g.personal_user_id IS NULL
-                  AND (assignment_g.project_id = p.id OR assignment_g.is_global = 1)
-            )
-        )
+        (' . self::MEMBER_SQL . ' AND t.created_by = a.id)
+        OR (' . self::MEMBER_SQL . ' AND ' . self::TASK_GLOBAL_ASSIGNED_VIEW_SQL . ')
+        OR ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '
     ))';
 
-    // Checks if the active actor can edit the task (project not archived and either manage project or member with task ownership).
-    public const TASK_EDIT_SQL = '(p.archived_at IS NULL AND (' . self::PROJECT_MANAGE_SQL . ' OR (
-        ' . self::MEMBER_SQL . ' AND t.created_by = a.id)))';
+    public const GROUP_MEMBER_COUNT_SQL = '(SELECT COUNT(DISTINCT counted_ug.user_id)
+        FROM users_groups counted_ug JOIN users counted_u ON counted_u.id = counted_ug.user_id
+        WHERE counted_ug.groups_id = g.id AND counted_u.deleted_at IS NULL)';
+
+    public const TASK_GLOBAL_ASSIGNED_VIEW_SQL = 'EXISTS (
+        SELECT 1 FROM groups_tasks global_gt
+        JOIN projects_groups global_pg
+          ON global_pg.project_id = p.id AND global_pg.group_id = global_gt.group_id
+        JOIN groups global_g ON global_g.id = global_gt.group_id
+        JOIN users_groups global_ug ON global_ug.groups_id = global_g.id
+        WHERE global_gt.task_id = t.id AND global_ug.user_id = a.id
+          AND global_g.is_global = 1 AND global_g.personal_user_id IS NULL
+    )';
+
+    // Task assignment grants task-scoped access to local group members and the
+    // owner of an assigned personal group. Global groups do not grant edit rights.
+    public const TASK_ASSIGNED_COLLABORATOR_SQL = 'EXISTS (
+        SELECT 1 FROM groups_tasks collaborator_gt
+        JOIN groups collaborator_g ON collaborator_g.id = collaborator_gt.group_id
+        WHERE collaborator_gt.task_id = t.id AND (
+            (collaborator_g.personal_user_id = a.id)
+            OR (collaborator_g.personal_user_id IS NULL AND collaborator_g.is_global = 0
+                AND collaborator_g.project_id = p.id
+                AND EXISTS (
+                    SELECT 1 FROM projects_groups collaborator_pg
+                    WHERE collaborator_pg.project_id = p.id
+                      AND collaborator_pg.group_id = collaborator_g.id
+                )
+                AND EXISTS (
+                    SELECT 1 FROM users_groups collaborator_ug
+                    WHERE collaborator_ug.groups_id = collaborator_g.id
+                      AND collaborator_ug.user_id = a.id
+                )
+            )
+        )
+    )';
+
+    public const TASK_EDIT_SQL = '(p.archived_at IS NULL AND (
+        ' . self::PROJECT_MANAGE_SQL . '
+        OR (' . self::MEMBER_SQL . ' AND t.created_by = a.id)
+        OR ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '
+    ))';
+
+    public const TASK_TITLE_DEADLINE_EDIT_SQL = self::TASK_EDIT_SQL;
 
     // Checks if the active actor can delete the task (project not archived and either manage project or member with task ownership or container ownership).
     // Container owners may delete private tasks without being allowed to read them.
@@ -62,6 +94,11 @@ final class AccessService {
 
     // Checks if the active actor can manage the task group (project not archived and manage project).
     public const TASK_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND ' . self::PROJECT_MANAGE_SQL . ')';
+    public const TASK_LOCAL_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND (
+        ' . self::PROJECT_MANAGE_SQL . ' OR ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '))';
+    public const TASK_TARGET_GROUP_MANAGE_SQL = '(' . self::PROJECT_MANAGE_SQL . '
+        OR (g.personal_user_id IS NULL AND g.is_global = 0 AND g.project_id = p.id
+            AND ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '))';
 
     public const CONTAINER_MANAGE_SQL = '(' . self::PROJECT_MANAGE_SQL .
         ' OR (' . self::MEMBER_SQL . ' AND c.created_by = a.id))';
@@ -145,8 +182,10 @@ final class AccessService {
             c.created_by AS container_owner, p.created_by AS project_owner, p.id AS project_id,
             a.is_admin, p.archived_at, (p.archived_at IS NULL) AS can_write,
             ' . self::TASK_EDIT_SQL . ' AS can_edit,
+            ' . self::TASK_TITLE_DEADLINE_EDIT_SQL . ' AS can_edit_title_deadline,
             ' . self::TASK_DELETE_SQL . ' AS can_delete,
             ' . self::TASK_GROUP_MANAGE_SQL . ' AS can_manage_groups
+            , ' . self::TASK_LOCAL_GROUP_MANAGE_SQL . ' AS can_manage_local_groups
             FROM tasks t JOIN containers c ON c.id = t.container_id
             JOIN projects p ON p.id = c.project_id ' . self::ACTOR_JOIN . '
             WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
@@ -175,12 +214,25 @@ final class AccessService {
         return $this->task($userId, $taskId, self::TASK_EDIT_SQL);
     }
 
+    public function canEditTaskTitleDeadline(int $userId, int $taskId): bool {
+        return $this->task($userId, $taskId, self::TASK_TITLE_DEADLINE_EDIT_SQL);
+    }
+
     public function canDeleteTask(int $userId, int $taskId): bool {
         return $this->task($userId, $taskId, self::TASK_DELETE_SQL);
     }
 
     public function canManageTaskGroups(int $userId, int $taskId): bool {
         return $this->task($userId, $taskId, self::PROJECT_MANAGE_SQL);
+    }
+
+    public function canManageTaskGroup(int $userId, int $taskId, int $groupId): bool {
+        return $this->exists('SELECT 1 FROM tasks t JOIN containers c ON c.id = t.container_id
+            JOIN projects p ON p.id = c.project_id JOIN groups g ON g.id = :group_id
+            ' . self::ACTOR_JOIN . ' WHERE t.id = :task_id AND t.deleted_at IS NULL
+              AND c.deleted_at IS NULL AND p.archived_at IS NULL
+              AND ' . self::TASK_VIEW_SQL . ' AND ' . self::TASK_TARGET_GROUP_MANAGE_SQL,
+            ['group_id' => $groupId, 'task_id' => $taskId, 'access_user' => $userId]);
     }
 
     public function canViewGroup(int $userId, int $groupId): bool {
@@ -197,7 +249,7 @@ final class AccessService {
 
     // These item rules require an accessibleTask() result, not an unchecked task row.
     public function canCreateSubtask(array $task, int $userId): bool {
-        return (bool) $task['can_write'] && ($this->canManageTaskContents($task, $userId) || (int) $task['task_owner'] === $userId);
+        return (bool) $task['can_write'] && (bool) $task['can_edit'];
     }
 
     private function canManageTaskContents(array $task, int $userId): bool {
@@ -205,11 +257,11 @@ final class AccessService {
     }
 
     public function canEditSubtask(array $task, array $item, int $userId): bool {
-        return (bool) $task['can_write'] && ($this->canManageTaskContents($task, $userId) || (int) ($item['created_by'] ?? 0) === $userId);
+        return (bool) $task['can_write'] && (bool) $task['can_edit'];
     }
 
     public function canDeleteSubtask(array $task, array $item, int $userId): bool {
-        return (bool) $task['can_write'] && ($this->canEditSubtask($task, $item, $userId) || (int) $task['task_owner'] === $userId);
+        return (bool) $task['can_write'] && (bool) $task['can_edit'];
     }
 
     public function canDeleteAttachment(array $task, array $item, int $userId): bool {

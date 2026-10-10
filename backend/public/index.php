@@ -130,6 +130,7 @@ $app->group('/api', function ($group) use ($taskController, $attachmentControlle
     $group->get('/projects/{id}/groups', [$projectController, 'getGroups']);
     $group->post('/projects/{id}/groups', [$projectController, 'createGroup']);
     $group->post('/projects/{id}/groups/{groupId}', [$projectController, 'addGroup']);
+    $group->put('/projects/{id}/groups/{groupId}', [$projectController, 'updateGroup']);
     $group->delete('/projects/{id}/groups/{groupId}', [$projectController, 'removeGroup']);
     $group->post('/projects', [$projectController, 'create']);
     $group->put('/projects/{id}', [$projectController, 'update']);

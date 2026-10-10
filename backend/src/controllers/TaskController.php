@@ -113,17 +113,21 @@ class TaskController {
         if (!$this->taskModel->isVisibleToUser($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Task nicht gefunden'], 404);
         }
-        if (!$this->taskModel->canEdit($id, $userId)) {
+        $canEdit = $this->taskModel->canEdit($id, $userId);
+        if (!$canEdit && !$this->taskModel->canEditTitleDeadline($id, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Keine Berechtigung zum Bearbeiten'], 403);
         }
         if (!is_array($data) || array_diff(array_keys($data), ['title', 'description', 'status', 'deadline'])) {
             return $this->jsonResponse($response, ['error' => 'Nur title, description, status und deadline sind erlaubt'], 400);
         }
+        if (!$canEdit && array_diff(array_keys($data), ['title', 'deadline'])) {
+            return $this->jsonResponse($response, ['error' => 'Du darfst nur Titel und Frist bearbeiten'], 403);
+        }
         if (isset($data['status']) && !in_array($data['status'], ['open', 'in_progress', 'done', 'timed_out'], true)) {
             return $this->jsonResponse($response, ['error' => 'Ungueltiger Status'], 400);
         }
 
-        if (empty($data['title'])) {
+        if (!is_string($data['title'] ?? null) || trim($data['title']) === '') {
             return $this->jsonResponse($response, ['error' => 'title darf nicht leer sein'], 400);
         }
 

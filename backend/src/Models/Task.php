@@ -89,8 +89,11 @@ class Task {
                 u.name AS creator_name,
                 " . AccessService::creatorAccessSql() . " AS creator_has_project_access,
                 " . AccessService::TASK_EDIT_SQL . " AS can_edit,
+                " . AccessService::TASK_EDIT_SQL . " AS can_create_subtasks,
+                " . AccessService::TASK_TITLE_DEADLINE_EDIT_SQL . " AS can_edit_title_deadline,
                 " . AccessService::TASK_DELETE_SQL . " AS can_delete,
                 " . AccessService::TASK_GROUP_MANAGE_SQL . " AS can_manage_groups,
+                " . AccessService::TASK_LOCAL_GROUP_MANAGE_SQL . " AS can_manage_local_groups,
                 (p.archived_at IS NULL) AS can_change_status,
                 GROUP_CONCAT(DISTINCT CASE WHEN $assignedGroup THEN gt.group_id END ORDER BY gt.group_id) AS group_ids,
                 GROUP_CONCAT(DISTINCT CASE WHEN $assignedGroup THEN g.name END ORDER BY g.name SEPARATOR ', ') AS group_names
@@ -125,8 +128,11 @@ class Task {
     public function getById(int $id, ?int $userId = null): ?array {
         $assignedGroup = TaskAccess::ASSIGNED_GROUP_SQL;
         $permissions = $userId === null ? '' : AccessService::TASK_EDIT_SQL . ' AS can_edit, ' .
+            AccessService::TASK_EDIT_SQL . ' AS can_create_subtasks, ' .
+            AccessService::TASK_TITLE_DEADLINE_EDIT_SQL . ' AS can_edit_title_deadline, ' .
             AccessService::TASK_DELETE_SQL . ' AS can_delete, ' .
             AccessService::TASK_GROUP_MANAGE_SQL . ' AS can_manage_groups, (p.archived_at IS NULL) AS can_change_status, ';
+        if ($userId !== null) $permissions .= AccessService::TASK_LOCAL_GROUP_MANAGE_SQL . ' AS can_manage_local_groups, ';
         $sql = "SELECT 
                     t.*, 
                     c.title AS container_title, 
@@ -169,6 +175,10 @@ class Task {
         return (new AccessService($this->pdo))->canEditTask($userId, $taskId);
     }
 
+    public function canEditTitleDeadline(int $taskId, int $userId): bool {
+        return (new AccessService($this->pdo))->canEditTaskTitleDeadline($userId, $taskId);
+    }
+
     public function canDelete(int $taskId, int $userId): bool {
         return (new AccessService($this->pdo))->canDeleteTask($userId, $taskId);
     }
@@ -199,6 +209,9 @@ class Task {
 
     // UPDATE
     public function update(int $id, array $data, int $userId): bool {
+        if (!array_diff(array_keys($data), ['title', 'deadline'])) {
+            return $this->updateTitleDeadline($id, $data, $userId);
+        }
         $sql = "UPDATE tasks t
                 JOIN containers c ON c.id = t.container_id
                 JOIN projects p ON p.id = c.project_id
@@ -220,6 +233,24 @@ class Task {
             'deadline'    => $data['deadline'] ?? null
         ]);
         return $stmt->rowCount() > 0 || $this->canEdit($id, $userId);
+    }
+
+    private function updateTitleDeadline(int $id, array $data, int $userId): bool {
+        if (!is_string($data['title'] ?? null) || trim($data['title']) === '') {
+            throw new \InvalidArgumentException('title darf nicht leer sein');
+        }
+        $sql = 'UPDATE tasks t
+                JOIN containers c ON c.id = t.container_id
+                JOIN projects p ON p.id = c.project_id
+                ' . AccessService::ACTOR_JOIN . '
+                SET t.title = :title' . (array_key_exists('deadline', $data) ? ', t.deadline = :deadline' : '') . '
+                WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
+                  AND ' . AccessService::TASK_TITLE_DEADLINE_EDIT_SQL;
+        $parameters = ['id' => $id, 'access_user' => $userId, 'title' => $data['title']];
+        if (array_key_exists('deadline', $data)) $parameters['deadline'] = $data['deadline'];
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($parameters);
+        return $stmt->rowCount() > 0 || $this->canEditTitleDeadline($id, $userId);
     }
 
     // DELETE (Soft-Delete)

@@ -58,10 +58,13 @@ class Project {
         return (new AccessService($this->pdo))->canManageProject($userId, $projectId);
     }
 
-    public function getGroups(int $projectId): array {
+    public function getGroups(int $projectId, ?int $viewerId = null): array {
         $stmt = $this->pdo->prepare(
             'SELECT g.id, g.name, g.personal_user_id, g.project_id, g.is_global,
-                    pu.name AS personal_user_name, g.created_at
+                    pu.name AS personal_user_name, g.created_at, ' . AccessService::GROUP_MEMBER_COUNT_SQL . ' AS member_count,
+                    EXISTS (SELECT 1 FROM users_groups viewer_ug
+                        JOIN users viewer_u ON viewer_u.id = viewer_ug.user_id AND viewer_u.deleted_at IS NULL
+                        WHERE viewer_ug.groups_id = g.id AND viewer_ug.user_id = :viewer_id) AS is_current_user_member
              FROM projects_groups pg
              JOIN groups g ON g.id = pg.group_id
              LEFT JOIN users pu ON pu.id = g.personal_user_id AND pu.deleted_at IS NULL
@@ -69,7 +72,7 @@ class Project {
                AND g.personal_user_id IS NULL AND (g.is_global = 1 OR g.project_id = pg.project_id)
              ORDER BY g.name'
         );
-        $stmt->execute(['project_id' => $projectId]);
+        $stmt->execute(['project_id' => $projectId, 'viewer_id' => $viewerId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -156,6 +159,55 @@ class Project {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
+            throw $exception;
+        }
+    }
+
+    public function updateGroup(int $projectId, int $groupId, string $name, array $userIds, int $actorId): bool {
+        if (!Group::isValidName($name) || Group::isReservedName($name) || $userIds === []) {
+            throw new \InvalidArgumentException('Gueltiger Gruppenname und mindestens ein Benutzer sind erforderlich');
+        }
+        $this->pdo->beginTransaction();
+        try {
+            $lock = $this->pdo->prepare('SELECT g.id FROM groups g
+                JOIN projects p ON p.id = g.project_id ' . AccessService::ACTOR_JOIN . '
+                WHERE g.id = :group_id AND p.id = :project_id AND p.archived_at IS NULL
+                  AND g.personal_user_id IS NULL AND g.is_global = 0
+                  AND ' . AccessService::PROJECT_MANAGE_SQL . ' FOR UPDATE');
+            $lock->execute(['group_id' => $groupId, 'project_id' => $projectId, 'access_user' => $actorId]);
+            if (!$lock->fetchColumn()) {
+                $this->pdo->rollBack();
+                return false;
+            }
+            $rename = $this->pdo->prepare('UPDATE groups g JOIN projects p ON p.id = g.project_id
+                ' . AccessService::ACTOR_JOIN . ' SET g.name = :name
+                WHERE g.id = :group_id AND p.id = :project_id AND p.archived_at IS NULL
+                  AND g.personal_user_id IS NULL AND g.is_global = 0 AND ' . AccessService::PROJECT_MANAGE_SQL);
+            $rename->execute(['name' => trim($name), 'group_id' => $groupId, 'project_id' => $projectId, 'access_user' => $actorId]);
+
+            $members = $this->pdo->prepare('SELECT user_id FROM users_groups WHERE groups_id = :group_id');
+            $members->execute(['group_id' => $groupId]);
+            $oldIds = array_map('intval', $members->fetchAll(PDO::FETCH_COLUMN));
+            $group = new Group($this->pdo);
+            foreach (array_diff($userIds, $oldIds) as $userId) {
+                if (!$group->addUserToGroup($userId, $groupId, $actorId)) {
+                    throw new \InvalidArgumentException('Benutzer nicht gefunden');
+                }
+            }
+            // Existing active members must also still be valid, not just newly added users.
+            $activeIds = array_map('intval', array_column($group->getUsersInGroup($groupId), 'id'));
+            if (array_diff($userIds, $activeIds)) {
+                throw new \InvalidArgumentException('Benutzer nicht gefunden');
+            }
+            foreach (array_diff($oldIds, $userIds) as $userId) {
+                if (!$group->removeUserFromGroup($userId, $groupId, $actorId)) {
+                    throw new \DomainException('Gruppe oder Berechtigung inzwischen geaendert');
+                }
+            }
+            $this->pdo->commit();
+            return true;
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $exception;
         }
     }

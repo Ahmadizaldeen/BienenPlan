@@ -32,7 +32,7 @@ class Subtask {
     public function create(int $taskId, int $userId, string $title): int {
         $stmt = $this->pdo->prepare('INSERT INTO subtasks (task_id, created_by, title, completed)
             SELECT :task_id, :user_id, :title, 0 WHERE EXISTS (' .
-            AccessService::taskWriteQuery(AccessService::PROJECT_MANAGE_SQL . ' OR t.created_by = a.id') . ')');
+            AccessService::taskWriteQuery(AccessService::TASK_EDIT_SQL) . ')');
         $stmt->execute(['task_id' => $taskId, 'user_id' => $userId, 'title' => $title,
             'write_task' => $taskId, 'access_user' => $userId]);
         if ($stmt->rowCount() !== 1) {
@@ -51,11 +51,10 @@ class Subtask {
                 $parameters[$field] = $field === 'completed' ? (int) $changes[$field] : $changes[$field];
             }
         }
-        $rule = array_key_exists('title', $changes)
-            ? AccessService::PROJECT_MANAGE_SQL . ' OR subtasks.created_by = a.id' : '1 = 1';
+        $itemRule = array_key_exists('title', $changes) ? AccessService::TASK_EDIT_SQL : '1 = 1';
         $stmt = $this->pdo->prepare('UPDATE subtasks SET ' . implode(', ', $fields) .
             ' WHERE task_id = :task_id AND id = :id AND deleted_at IS NULL
-              AND EXISTS (' . AccessService::taskWriteQuery($rule) . ')');
+              AND EXISTS (' . AccessService::taskWriteQuery($itemRule) . ')');
         $stmt->execute($parameters);
         if ($stmt->rowCount() > 0) return true;
         $task = $this->accessibleTask($taskId, $userId);
@@ -67,8 +66,7 @@ class Subtask {
     public function delete(int $taskId, int $id, int $userId): bool {
         $stmt = $this->pdo->prepare('UPDATE subtasks SET deleted_at = CURRENT_TIMESTAMP, deleted_by = :user_id
             WHERE task_id = :task_id AND id = :id AND deleted_at IS NULL AND EXISTS (' .
-            AccessService::taskWriteQuery(AccessService::PROJECT_MANAGE_SQL .
-                ' OR subtasks.created_by = a.id OR t.created_by = a.id') . ')');
+            AccessService::taskWriteQuery(AccessService::TASK_EDIT_SQL) . ')');
         $stmt->execute(['task_id' => $taskId, 'id' => $id, 'user_id' => $userId,
             'write_task' => $taskId, 'access_user' => $userId]);
         return $stmt->rowCount() === 1;

@@ -102,7 +102,7 @@ class ProjectController {
             return $this->jsonResponse($response, ['error' => 'Projekt nicht gefunden'], 404);
         }
 
-        return $this->jsonResponse($response, ['groups' => $this->projectModel->getGroups($projectId)]);
+        return $this->jsonResponse($response, ['groups' => $this->projectModel->getGroups($projectId, $userId)]);
     }
 
     public function addGroup(Request $request, Response $response, array $args): Response {
@@ -133,33 +133,68 @@ class ProjectController {
     public function createGroup(Request $request, Response $response, array $args): Response {
         $projectId = (int) ($args['id'] ?? 0);
         $userId = (int) $request->getAttribute('user_id');
-        $data = $request->getParsedBody();
-        if (!is_array($data) || !Group::isValidName($data['name'] ?? null)) {
-            return $this->jsonResponse($response, ['error' => 'Gruppenname muss 1 bis 100 Zeichen enthalten'], 400);
-        }
-        $name = trim($data['name']);
-        $rawUserIds = $data['user_ids'] ?? [];
-
-        if ($projectId < 1 || $name === '' || !is_array($rawUserIds) || $rawUserIds === []) {
-            return $this->jsonResponse($response, ['error' => 'Name und mindestens ein Benutzer sind erforderlich'], 400);
+        if ($projectId < 1) {
+            return $this->jsonResponse($response, ['error' => 'Ungueltige Projekt-ID'], 400);
         }
         if (!$this->projectModel->isOwner($projectId, $userId)) {
             return $this->jsonResponse($response, ['error' => 'Keine Berechtigung'], 403);
         }
+        try {
+            [$name, $userIds] = $this->groupData($request->getParsedBody());
+            $groupId = $this->projectModel->createGroup($projectId, $name, $userIds, $userId);
+        } catch (\DomainException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 409);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->jsonResponse($response, ['error' => $exception->getMessage()], 400);
+        } catch (\PDOException $exception) {
+            if ($exception->getCode() === '23000') {
+                return $this->jsonResponse($response, ['error' => 'Gruppe oder Benutzer nicht gefunden bzw. Name bereits vergeben'], 409);
+            }
+            throw $exception;
+        }
+        return $this->jsonResponse($response, ['id' => $groupId, 'name' => $name], 201);
+    }
+
+    private function groupData(mixed $data): array {
+        if (!is_array($data) || !Group::isValidName($data['name'] ?? null)) {
+            throw new \InvalidArgumentException('Gruppenname muss 1 bis 100 Zeichen enthalten');
+        }
+        $name = trim($data['name']);
+        $rawUserIds = $data['user_ids'] ?? [];
+
+        if (!is_array($rawUserIds) || $rawUserIds === []) {
+            throw new \InvalidArgumentException('Name und mindestens ein Benutzer sind erforderlich');
+        }
         if (Group::isReservedName($name)) {
-            return $this->jsonResponse($response, ['error' => 'Dieser Gruppenname ist reserviert'], 400);
+            throw new \InvalidArgumentException('Dieser Gruppenname ist reserviert');
         }
 
         $userIds = [];
         foreach ($rawUserIds as $rawUserId) {
             if ((!is_int($rawUserId) && (!is_string($rawUserId) || !ctype_digit($rawUserId))) || (int) $rawUserId < 1) {
-                return $this->jsonResponse($response, ['error' => 'Ungültige Benutzer-ID'], 400);
+                throw new \InvalidArgumentException('Ungültige Benutzer-ID');
             }
             $userIds[] = (int) $rawUserId;
         }
 
+        return [$name, array_values(array_unique($userIds))];
+    }
+
+    public function updateGroup(Request $request, Response $response, array $args): Response {
+        $projectId = filter_var($args['id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $groupId = filter_var($args['groupId'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $userId = (int) $request->getAttribute('user_id');
+        if ($projectId === false || $groupId === false) {
+            return $this->jsonResponse($response, ['error' => 'Ungültige Projekt- oder Gruppen-ID'], 400);
+        }
+        if (!$this->projectModel->isOwner($projectId, $userId)) {
+            return $this->jsonResponse($response, ['error' => 'Keine Berechtigung'], 403);
+        }
         try {
-            $groupId = $this->projectModel->createGroup($projectId, $name, array_values(array_unique($userIds)), $userId);
+            [$name, $userIds] = $this->groupData($request->getParsedBody());
+            if (!$this->projectModel->updateGroup($projectId, $groupId, $name, $userIds, $userId)) {
+                return $this->jsonResponse($response, ['error' => 'Lokale Gruppe nicht gefunden oder Berechtigung entzogen'], 409);
+            }
         } catch (\DomainException $exception) {
             return $this->jsonResponse($response, ['error' => $exception->getMessage()], 409);
         } catch (\InvalidArgumentException $exception) {
@@ -171,7 +206,7 @@ class ProjectController {
             throw $exception;
         }
 
-        return $this->jsonResponse($response, ['id' => $groupId, 'name' => $name], 201);
+        return $this->jsonResponse($response, ['message' => 'Gruppe aktualisiert', 'id' => $groupId, 'name' => $name]);
     }
 
     public function removeGroup(Request $request, Response $response, array $args): Response {

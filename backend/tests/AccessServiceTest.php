@@ -104,7 +104,7 @@ try {
     check(count($tasks->getAllByUser(6)) === 3, 'Admin list includes legacy tasks without creator');
     check(count($projects->getAll(6)) === 2 && count($containers->getAll(6)) === 3, 'Admin sees all active projects and containers');
     check(!$access->canViewTask(2, 1) && $access->canDeleteTask(2, 1), 'Container owner may delete but not read private task');
-    check($access->canViewTask(3, 1) && $access->canEditTask(3, 1), 'Creator sees and edits own unassigned task');
+    check($access->canViewTask(3, 1) && $access->canEditTask(3, 1), 'Task creator with project access edits own task');
     check(!$access->canViewTask(4, 1) && $access->canViewTask(4, 2), 'Member sees only assigned tasks');
     check(!$access->canViewProject(5, 1), 'Other project owner has no foreign project access');
     check($access->canManageGroup(1, 10) && !$access->canManageGroup(1, 12), 'Project owner manages only local membership');
@@ -120,7 +120,7 @@ try {
     check(!$groups->assignGroup(1, 11, 1) && !$groups->assignGroup(1, 14, 1), 'Only eligible project groups can be manually assigned');
 
     $member = $request->withAttribute('user_id', 4);
-    check($taskController->update($member->withParsedBody(['title' => 'No']), new Response(), ['id' => '2'])->getStatusCode() === 403, 'Member cannot edit task content');
+    check($taskController->update($member->withParsedBody(['title' => 'Assigned member edit']), new Response(), ['id' => '2'])->getStatusCode() === 200, 'Assigned local-group member can edit task content');
     check($taskController->updateStatus($member->withParsedBody(['status' => 'done']), new Response(), ['id' => '2'])->getStatusCode() === 200, 'Member can change status');
     check($taskController->updateStatus($member->withParsedBody(['status' => 'done']), new Response(), ['id' => '2'])->getStatusCode() === 200, 'Unchanged authorized status still succeeds');
     check($tasks->update(2, ['title' => 'Shared', 'status' => 'done'], 3), 'Authorized task content update succeeds');
@@ -227,7 +227,7 @@ try {
     check($groupController->addUserToGroup($request, new Response(), ['groupId' => '10', 'userId' => '5'])->getStatusCode() === 201, 'Owner adds individual to local group');
     check($groupController->removeUserFromGroup($request, new Response(), ['groupId' => '10', 'userId' => '5'])->getStatusCode() === 200, 'Owner removes local member');
     check(!$access->canViewProject(5, 1), 'Removal takes effect immediately');
-    check($subtaskController->create($request->withAttribute('user_id', 2)->withParsedBody(['title' => 'No']), new Response(), ['taskId' => '2'])->getStatusCode() === 403, 'Assigned container owner cannot create subtasks');
+    check($subtaskController->create($request->withAttribute('user_id', 2)->withParsedBody(['title' => 'Assigned member item']), new Response(), ['taskId' => '2'])->getStatusCode() === 201, 'Assigned local-group member can create subtasks');
     check($subtaskController->update($member->withParsedBody(['title' => 'Own item']), new Response(), ['taskId' => '2', 'subtaskId' => '1'])->getStatusCode() === 200, 'Member edits own subtask');
     check($subtaskController->update($member->withParsedBody(['title' => 'Own item']), new Response(), ['taskId' => '2', 'subtaskId' => '1'])->getStatusCode() === 200, 'Unchanged authorized subtask update succeeds');
     check($attachmentController->delete($request->withAttribute('user_id', 6), new Response(), ['id' => '2', 'attachmentId' => '1'])->getStatusCode() === 200, 'Admin deletes foreign attachment');
@@ -243,8 +243,14 @@ try {
     check($taskController->move($request->withParsedBody(['container_id' => 2]), new Response(), ['id' => '2'])->getStatusCode() === 200, 'Owner moves within project');
 
     $db->exec('DELETE FROM users_groups WHERE user_id = 3 AND groups_id = 10');
-    check(!$access->canViewTask(3, 1) && !$access->canEditTask(3, 1) && !$access->canDeleteTask(3, 1), 'Membership loss overrides task ownership and personal assignment');
-    check($tasks->getAllByUser(3) === [] && (int) $tasks->getById(1)['created_by'] === 3, 'Creator remains stored but list access ends');
+    check($access->canViewTask(3, 1) && $access->canEditTask(3, 1) && !$access->canDeleteTask(3, 1), 'Assigned personal group retains task-scoped access without project membership');
+    check(count($tasks->getAllByUser(3)) === 1 && (int) $tasks->getById(1)['created_by'] === 3, 'Personal assignment remains visible after project membership ends');
+    check($access->canManageTaskGroup(3, 1, 10), 'Personal assignee may manage local task groups');
+    check($subtaskController->create(
+        $request->withAttribute('user_id', 3)->withParsedBody(['title' => 'Personal assignee item']),
+        new Response(),
+        ['taskId' => '1']
+    )->getStatusCode() === 201, 'Personal assignee may create subtasks without project membership');
     check((int) $tasks->getById(1, 6)['creator_has_project_access'] === 0, 'Admin sees creator without project access');
     $adminItems = $tasks->getAllByUser(6);
     foreach ($adminItems as $adminItem) {
@@ -255,7 +261,7 @@ try {
     $db->exec('DELETE FROM users_groups WHERE user_id = 2 AND groups_id = 10');
     check(!$access->canManageContainer(2, 1) && !$access->canDeleteTask(2, 1), 'Membership loss overrides container ownership');
     $db->exec('INSERT INTO users_groups (user_id, groups_id) VALUES (3, 12)');
-    check($access->canViewTask(3, 1), 'Another assigned project group preserves creator access');
+    check($access->canViewTask(3, 1), 'Personal task assignment preserves task access');
     $db->exec('DELETE FROM users_groups WHERE user_id = 3 AND groups_id = 12');
 
     $jwt = new JwtService();
@@ -327,7 +333,7 @@ try {
     check($projectController->restore($admin, new Response(), ['id' => '99999'])->getStatusCode() === 404, 'Missing restore target returns 404');
     check($projectController->restore($admin, new Response(), ['id' => '1'])->getStatusCode() === 200, 'Admin restores project');
     check($projects->getAll(6, true) === [] && $access->canViewTask(1, 1), 'Restore returns project to normal access');
-    check(!$access->canViewTask(3, 1), 'Restore does not recreate revoked membership');
+    check($access->canViewTask(3, 1), 'Personal task assignment remains after project restore');
     check($projectController->restore($admin, new Response(), ['id' => '1'])->getStatusCode() === 409, 'Repeated restore returns conflict');
     $db->exec('UPDATE projects SET archived_at = CURRENT_TIMESTAMP, archived_by = 1 WHERE id = 1');
     $db->exec('UPDATE users SET is_admin = 0 WHERE id = 6');
