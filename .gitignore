@@ -14,3 +14,4 @@ backend/public/uploads/
 backend/storage/task_attachments/
 .claude/agents/DOCS.agent.md
 .vscode/settings.json
+backend/src/code_counter.py

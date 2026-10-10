@@ -4,8 +4,10 @@ BienenPlan ist eine plattformübergreifende Projektmanagement-Anwendung. Das Bac
 
 ## Zentrale Berechtigungen
 
-Die Regeln liegen in `backend/src/Services/AccessService.php`. Controller und
-Models verwenden dieselben Regeln fuer Einzelzugriff und SQL-gefilterte Listen.
+Die verbindliche fachliche Quelle ist die
+[Berechtigungsmatrix](docs/BERECHTIGUNGSMATRIX.md). Die technischen Regeln liegen
+in `backend/src/Services/AccessService.php`; Controller und Models verwenden
+dieselben Regeln fuer Einzelzugriff und SQL-gefilterte Listen.
 
 - `users.is_admin` ist die einzige globale Sonderrolle. Registrierung kann sie
   nicht vergeben. Die Auth-Middleware prueft bei jedem Request den aktiven
@@ -14,14 +16,26 @@ Models verwenden dieselben Regeln fuer Einzelzugriff und SQL-gefilterte Listen.
   Jedes aktive Konto darf eigene Projekte erstellen.
 - Projektmitglieder duerfen Container und Tasks erstellen. Container- und
   Task-Ownership gewaehrt nach vollstaendigem Projektmitgliedschaftsentzug
-  keinen Zugriff mehr. Historische Ersteller bleiben gespeichert.
+  keinen Zugriff mehr, ausser eine eigene lokale oder persoenliche
+  Aufgabenzuweisung besteht weiter. Historische Ersteller bleiben gespeichert.
 - Task-Inhalte bearbeiten duerfen Admin, Projekt-Owner und berechtigter
   Task-Ersteller. Sichtbare Tasks duerfen Mitglieder im Status aendern.
+- Mitglieder jeder einer Aufgabe zugewiesenen lokalen Gruppe sowie der
+  Eigentuemer einer zugewiesenen persoenlichen Gruppe duerfen vorlaeufig alle
+  Task-Inhalte bearbeiten, lokale Gruppen desselben Projekts zuweisen/entfernen
+  und Unteraufgaben vollstaendig verwalten. Persoenliche Gruppen geben nur
+  Zugriff auf die zugewiesene Aufgabe. Task-Loeschung und das Loeschen fremder
+  Anhaenge werden dadurch nicht erlaubt. Details stehen in der verbindlichen
+  Berechtigungsmatrix.
 - Container-Owner duerfen Tasks im eigenen Container loeschen, erhalten aber
   keinen automatischen Task-Lesezugriff. Leere Container werden weich geloescht;
   aktive Tasks verhindern das Entfernen mit `409`.
 - Gruppen fuer Projekte und Task-Zuweisungen verwalten nur Admin und
   Projekt-Owner. Task-Gruppen muessen zum Projekt gehoeren.
+  Ausnahme: Berechtigte Mitglieder lokaler Gruppen sowie der Eigentuemer einer
+  zugewiesenen persoenlichen Gruppe duerfen lokale Gruppen desselben Projekts
+  hinzufuegen und entfernen. `can_manage_local_groups` kennzeichnet dieses Recht;
+  `can_manage_groups` bleibt das volle Owner-/Admin-Recht.
 - Globale Gruppen (`is_global = true`, `project_id = NULL`) werden nur von
   Admin erstellt und in ihrer Mitgliedschaft verwaltet. Sie sind auswaehlbar,
   aber nicht automatisch allen Projekten zugeordnet.
@@ -69,8 +83,12 @@ Vor Wiederherstellung bestaetigen; bei Erfolg Karte aus dem Archiv entfernen
 und aktive Projektliste neu laden. Keine archivierten Karten zwischen aktiven
 Projekten mischen. Ladezustand, leeres Archiv und API-Fehler sichtbar behandeln.
 
-Task-Listen und Details liefern `can_edit`, `can_delete`, `can_manage_groups`
-und `can_change_status`. `creator_has_project_access` kennzeichnet, ob der
+Task-Listen und Details liefern `can_edit`, `can_edit_title_deadline`, `can_delete`,
+`can_manage_groups`, `can_manage_local_groups`, `can_change_status`
+und `can_create_subtasks` fuer die Rechteuebersicht. Projektgruppen liefern
+`member_count` und `is_current_user_member` bezogen auf den authentifizierten
+Betrachter.
+`creator_has_project_access` kennzeichnet, ob der
 historische Ersteller noch Zugriff auf das Projekt hat. Bestehende
 Unteraufgaben- und Anhang-`can_*`-Felder bleiben erhalten.
 
@@ -97,6 +115,7 @@ Neue Endpunkte:
 | Endpunkt | Verhalten |
 |---|---|
 | `DELETE /api/groups/{groupId}/users/{userId}` | Mitglied entfernen; Admin oder Owner der lokalen Gruppe |
+| `PUT /api/projects/{id}/groups/{groupId}` | Lokalen Gruppennamen und Mitglieder atomar bearbeiten; Body `{"name": "Team", "user_ids": [2]}`; Projekt-Owner oder Admin, mindestens ein aktiver Benutzer |
 | `POST /api/tasks/{id}/move` | Body `{"container_id": 123}`; Admin oder Projekt-Owner, nur innerhalb desselben Projekts |
 
 ### Migration und Aktivierung
@@ -170,6 +189,7 @@ Es gibt bewusst keinen oeffentlichen Admin-Vergabe-Endpunkt.
 
 ```text
 php backend/tests/AccessServiceTest.php
+php backend/tests/SingleMemberGroupsTest.php
 php backend/tests/AccessMigrationTest.php
 php backend/tests/TaskCreationTest.php
 php backend/tests/SubtasksTest.php
@@ -189,11 +209,13 @@ wird automatisch ueber seine persoenliche Gruppe zugewiesen; Task und Zuweisung
 werden in einer Transaktion gespeichert. Fehlt diese Gruppe oder ihre
 Mitgliedschaft, wird die Erstellung zurueckgerollt und ein Serverfehler gemeldet.
 
-Admin und Projektbesitzer sehen alle aktiven Aufgaben. Andere Projektmitglieder
-sehen Aufgaben ueber zugewiesene Projektgruppen oder als Task-Ersteller.
-Die persoenliche Standardzuweisung fuegt keine Gruppe zum Projekt hinzu und
-gewaehrt keinen Zugriff auf andere Projektaufgaben. Dieselben Regeln gelten fuer
-Unteraufgaben und Anhaenge. Geloeschte Container bleiben ausgeschlossen.
+Admin und Projektbesitzer sehen alle aktiven Aufgaben. Andere Benutzer sehen
+Tasks ueber ihre zugewiesenen lokalen/globalen Gruppen, eine zugewiesene
+persoenliche Gruppe oder als Task-Ersteller mit Projektzugriff. Die persoenliche
+Standardzuweisung fuegt keine Gruppe zum Projekt hinzu und gewaehrt nur Zugriff
+auf die konkret zugewiesene Aufgabe, nicht auf andere Projektaufgaben. Dieselben
+Regeln gelten fuer Unteraufgaben und Anhaenge. Geloeschte Container bleiben
+ausgeschlossen.
 Archivierte Projekte sind nur fuer Admin schreibgeschuetzt lesbar.
 Eine Task dürfen Admin, Projekt-Owner sowie berechtigte
 Projektmitglieder als Task-Ersteller oder Container-Inhaber löschen.
@@ -405,13 +427,13 @@ Content-Type: application/json
 | -------- | ---------------------------------------- | ------------------------------------------------------------------------- |
 | `GET`    | `/api/me`                                | Aktuellen Benutzer mit Authentifizierungsdaten laden                      |
 | `POST`   | `/api/me/picture`                        | Profilbild für den angemeldeten Benutzer hochladen                        |
-| `GET`    | `/api/tasks`                             | Tasks des angemeldeten Benutzers über seine Gruppenmitgliedschaften laden |
+| `GET`    | `/api/tasks`                             | Tasks laden, auf die der angemeldete Benutzer laut Berechtigungsmatrix Zugriff hat |
 | `GET`    | `/api/tasks/{id}`                        | Eine nicht gelöschte Task laden                                           |
 | `POST`   | `/api/tasks`                             | Task in einem Container anlegen                                           |
 | `PUT`    | `/api/tasks/{id}`                        | Titel, Beschreibung, Status und Deadline aktualisieren                    |
 | `DELETE` | `/api/tasks/{id}`                        | Task als Admin, Projekt-Owner oder berechtigter Task-/Container-Ersteller per Soft-Delete löschen |
 | `GET`    | `/api/tasks/{taskId}/subtasks`             | Aktive Subtasks und Berechtigungen laden                                  |
-| `POST`   | `/api/tasks/{taskId}/subtasks`             | Subtask als Admin, Projekt-Owner oder berechtigter Task-Ersteller erstellen |
+| `POST`   | `/api/tasks/{taskId}/subtasks`             | Subtask gemaess Berechtigungsmatrix erstellen |
 | `PUT`    | `/api/tasks/{taskId}/subtasks/{subtaskId}`  | Titel und/oder completed aktualisieren                                   |
 | `DELETE` | `/api/tasks/{taskId}/subtasks/{subtaskId}`  | Subtask per Soft-Delete löschen                                           |
 | `GET`    | `/api/tasks/{id}/attachments`            | Hochgeladene Dateien auflisten (inkl. `can_delete`)                       |
@@ -450,12 +472,9 @@ Subtask mit `201`. `PUT` akzeptiert nur die übergebenen Felder `title` und/oder
 `completed` und liefert den aktualisierten Subtask mit `200`.
 
 Titel müssen nach dem Trimmen 1 bis 100 Unicode-Codepoints enthalten.
-Admin, Projekt-Owner und berechtigte Task-Ersteller dürfen erstellen.
-Admin und Projekt-Owner dürfen alle Subtasks verwalten; Subtask-Ersteller dürfen
-eigene Einträge umbenennen und löschen, solange sie noch Task-Zugriff haben.
-Task-Ersteller dürfen außerdem fremde Subtasks löschen, aber nicht umbenennen.
-Mitglieder mit Task-Zugriff dürfen abhaken, aber allein durch Mitgliedschaft
-keine fremden Subtasks umbenennen oder löschen. Alle Rechte werden im Backend geprüft,
+Die verbindliche Rechtevergabe fuer Erstellen, Aendern, Abhaken und Loeschen
+steht in der [Berechtigungsmatrix](docs/BERECHTIGUNGSMATRIX.md).
+Alle Rechte werden im Backend geprüft,
 auch bei kombinierten Änderungsrequests. Fehlende Ressourcen oder fehlender
 Task-Zugriff liefern `404`, verbotene Aktionen `403`, ungültige Daten `400`.
 
@@ -467,7 +486,7 @@ Regressionstest: `php backend/tests/SubtasksTest.php` (PDO SQLite erforderlich).
 
 ### Aktuelle Task-Sichtbarkeit
 
-`GET /api/tasks` und `GET /api/tasks/{id}` verwenden dieselbe zentrale Zugriffspolitik: Admin und Projekt-Owner sehen alle Tasks, Projektmitglieder eigene Tasks oder Tasks ihrer zugewiesenen Projektgruppen. Persönliche Gruppen ersetzen keine Projektmitgliedschaft. Die Antwort enthält neben den Task-Daten unter anderem `project_id`, `project_name`, `group_ids`, `group_names` und Aktionsrechte.
+`GET /api/tasks` und `GET /api/tasks/{id}` verwenden dieselbe zentrale Zugriffspolitik: Admin und Projekt-Owner sehen alle aktiven Tasks. Andere Benutzer sehen Tasks ihrer zugewiesenen lokalen/globalen Gruppen, eine ihrer persoenlichen Gruppe zugewiesene Task oder eigene Tasks bei fortbestehendem Projektzugriff. Persoenliche Gruppen verleihen keine Projektmitgliedschaft. Die Antwort enthält neben den Task-Daten unter anderem `project_id`, `project_name`, `group_ids`, `group_names` und Aktionsrechte.
 
 Gelöschte Tasks und Container bleiben ausgeschlossen. Ohne Projektfilter liefern Listen nur aktive Projekte; mit `project_id` darf Admin auch archivierte Inhalte lesen.
 
