@@ -4,6 +4,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use BienenPlan\Config\Database;
 use BienenPlan\Controllers\ContainerController;
+use BienenPlan\Controllers\GroupController;
 use BienenPlan\Controllers\TaskAttachmentController;
 use BienenPlan\Controllers\TaskController;
 use BienenPlan\Models\Container;
@@ -11,6 +12,7 @@ use BienenPlan\Models\Group;
 use BienenPlan\Models\Subtask;
 use BienenPlan\Models\Task;
 use BienenPlan\Models\TaskAttachment;
+use BienenPlan\Models\User;
 use BienenPlan\Services\Env;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response;
@@ -85,7 +87,10 @@ try {
     check($tasks->isVisibleToUser($id, 1), 'Project owner retains access');
     check($tasks->canDelete($id, 1), 'Project owner can delete a task in their project');
     check(!$tasks->canDelete($id, 3), 'Other project members cannot delete tasks');
-    check(!$tasks->isVisibleToUser($id, 3), 'Unassigned project member cannot read a private task');
+    check(!$tasks->isVisibleToUser($id, 3), 'Project member cannot read a task without direct group assignment');
+    check($subtasks->accessibleTask($id, 3) === null,
+        'Subtasks also require direct task access through an assignment');
+    check($tasks->getAllByUser(3) === [], 'Unassigned project tasks are omitted from the member task list');
     check($controller->getById($request->withAttribute('user_id', 4), new Response(), ['id' => $id])->getStatusCode() === 404, 'Stranger cannot read task');
     check($tasks->getAllByUser(4) === [], 'Stranger cannot see task in the list');
     check($controller->create($request->withAttribute('user_id', 4)->withParsedBody($payload), new Response())->getStatusCode() === 404, 'Stranger cannot create in the project');
@@ -93,6 +98,25 @@ try {
     check($containers->getOne($request, new Response(), ['id' => 1])->getStatusCode() === 200, 'Project member can open the container');
     check($containers->getOne($request->withAttribute('user_id', 4), new Response(), ['id' => 1])->getStatusCode() === 404, 'Stranger cannot open container');
     check($containers->update($request->withParsedBody(['title' => 'No']), new Response(), ['id' => 1])->getStatusCode() === 403, 'Read access does not grant container management');
+
+    $db->exec("INSERT INTO groups (id, name, is_global) VALUES
+        (11, 'All-in-One', 1), (12, 'Unlinked global', 1);
+        INSERT INTO projects_groups VALUES (1, 11)");
+    $groupController = new GroupController($groups, new User($db));
+    $groupArgs = ['taskId' => (string) $id, 'groupId' => '11'];
+    check($tasks->getById($id, 2)['can_manage_groups'] == 1,
+        'New task creator receives project-group assignment capability');
+    check($groupController->assignGroup($request, new Response(), $groupArgs)->getStatusCode() === 201,
+        'Group member can assign a linked global group to a newly created task');
+    check((int) $db->query("SELECT COUNT(*) FROM groups_tasks WHERE task_id = $id AND group_id = 11")->fetchColumn() === 1,
+        'Global assignment is persisted');
+    check($groupController->assignGroup($request, new Response(), ['taskId' => (string) $id, 'groupId' => '12'])->getStatusCode() === 403,
+        'Unlinked global group remains forbidden');
+    check(!$groups->assignGroup($id, 12, 2), 'Model also rejects unlinked global assignment');
+    check($groupController->removeGroup($request, new Response(), $groupArgs)->getStatusCode() === 200,
+        'Creator can remove global assignment without removing personal assignment');
+    check($tasks->getById($id)['group_ids'] === '21', 'Personal default assignment remains intact');
+    $db->exec('DELETE FROM projects_groups WHERE project_id = 1 AND group_id = 11');
 
     $db->exec('INSERT INTO users_groups VALUES (4, 21)');
     check(!$tasks->isVisibleToUser($id, 4), 'Membership in another creator\'s personal group cannot bypass the project allowlist');
@@ -186,19 +210,22 @@ try {
     $db->exec("INSERT INTO groups (id, name, project_id) VALUES (30, 'Project 2 members', 2);
         INSERT INTO projects_groups VALUES (2, 30);
         INSERT INTO users_groups VALUES (1, 30)");
-    check(!$tasks->isVisibleToUser($containerTaskId, 1), 'Container owner need not have regular task visibility');
+    check(!$tasks->isVisibleToUser($containerTaskId, 1),
+        'Project member cannot see an unassigned task even in a visible container');
     check($tasks->canDelete($containerTaskId, 1), 'Container owner can delete tasks in their container');
     check(
         $controller->delete($request->withAttribute('user_id', 1), new Response(), ['id' => (string) $containerTaskId])->getStatusCode() === 200,
         'Container owner can delete task despite lacking regular visibility'
     );
     $db->exec('UPDATE containers SET deleted_at = NOW() WHERE id = 1');
-    check(!$tasks->isVisibleToUser($id, 1) && count($tasks->getAllByUser(1)) === 0, 'Deleted container hides tasks in detail and list');
+    check(!$tasks->isVisibleToUser($id, 1) && count($tasks->getAllByUser(1)) === 0,
+        'Deleted container hides its tasks from the project owner');
     check(!$tasks->isVisibleToUser($id, 2) && count($tasks->getAllByUser(2)) === 1, 'Personal assignment cannot bypass a deleted container');
     check($subtasks->accessibleTask($id, 1) === null && $attachments->accessibleTask($id, 1) === null, 'Deleted container hides nested resources');
     check($controller->create($request->withParsedBody($payload), new Response())->getStatusCode() === 404, 'Deleted container rejects creation');
     $db->exec('UPDATE containers SET deleted_at = NULL WHERE id = 1; UPDATE projects SET archived_at = NOW() WHERE id = 1');
-    check(!$tasks->isVisibleToUser($id, 1) && count($tasks->getAllByUser(1)) === 0, 'Archived project hides tasks in detail and list');
+    check(!$tasks->isVisibleToUser($id, 1) && count($tasks->getAllByUser(1)) === 0,
+        'Archived project hides its tasks from the project owner');
     check(!$tasks->isVisibleToUser($id, 2) && count($tasks->getAllByUser(2)) === 1, 'Personal assignment cannot bypass project archival');
     check($subtasks->accessibleTask($id, 2) === null && $attachments->accessibleTask($id, 2) === null, 'Archived project hides nested resources from creator');
     check($controller->create($request->withParsedBody($payload), new Response())->getStatusCode() === 404, 'Archived project rejects creation');

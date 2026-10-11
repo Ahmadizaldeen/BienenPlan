@@ -34,13 +34,15 @@ final class AccessService {
     public const PROJECT_VIEW_SQL = 
      '(' . self::PROJECT_MANAGE_SQL . ' OR ' . self::MEMBER_SQL . ')';
 
-    // Task creators retain access through project membership; assigned global groups
-    // grant read access, while local/personal assignments grant collaborator access.
-    public const TASK_VIEW_SQL = '(' . self::PROJECT_MANAGE_SQL . ' OR (
+    // This preserves task-scoped access for status changes and other existing actions.
+    public const TASK_ASSIGNED_VIEW_SQL = '(' . self::PROJECT_MANAGE_SQL . ' OR (
         (' . self::MEMBER_SQL . ' AND t.created_by = a.id)
         OR (' . self::MEMBER_SQL . ' AND ' . self::TASK_GLOBAL_ASSIGNED_VIEW_SQL . ')
         OR ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '
     ))';
+
+    // Project membership alone does not grant access to task contents.
+    public const TASK_VIEW_SQL = self::TASK_ASSIGNED_VIEW_SQL;
 
     public const GROUP_MEMBER_COUNT_SQL = '(SELECT COUNT(DISTINCT counted_ug.user_id)
         FROM users_groups counted_ug JOIN users counted_u ON counted_u.id = counted_ug.user_id
@@ -85,6 +87,10 @@ final class AccessService {
         OR ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '
     ))';
 
+    public const TASK_SUBTASK_CREATE_SQL = '(p.archived_at IS NULL AND (
+        ' . self::TASK_EDIT_SQL . ' OR ' . self::TASK_GLOBAL_ASSIGNED_VIEW_SQL . '
+    ))';
+
     public const TASK_TITLE_DEADLINE_EDIT_SQL = self::TASK_EDIT_SQL;
 
     // Checks if the active actor can delete the task (project not archived and either manage project or member with task ownership or container ownership).
@@ -92,13 +98,17 @@ final class AccessService {
     public const TASK_DELETE_SQL = '(p.archived_at IS NULL AND (' . self::PROJECT_MANAGE_SQL . ' OR (
         ' . self::MEMBER_SQL . ' AND (t.created_by = a.id OR c.created_by = a.id))))';
 
-    // Checks if the active actor can manage the task group (project not archived and manage project).
-    public const TASK_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND ' . self::PROJECT_MANAGE_SQL . ')';
-    public const TASK_LOCAL_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND (
+    public const TASK_MOVE_SQL = '(p.archived_at IS NULL AND ' . self::PROJECT_MANAGE_SQL . ')';
+    public const TASK_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND (
         ' . self::PROJECT_MANAGE_SQL . ' OR ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '))';
-    public const TASK_TARGET_GROUP_MANAGE_SQL = '(' . self::PROJECT_MANAGE_SQL . '
-        OR (g.personal_user_id IS NULL AND g.is_global = 0 AND g.project_id = p.id
-            AND ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '))';
+    public const TASK_LOCAL_GROUP_MANAGE_SQL = self::TASK_GROUP_MANAGE_SQL;
+    public const TASK_TARGET_GROUP_MANAGE_SQL = '(g.personal_user_id IS NULL
+        AND (g.is_global = 1 OR (g.is_global = 0 AND g.project_id = p.id))
+        AND EXISTS (
+            SELECT 1 FROM projects_groups target_pg
+            WHERE target_pg.project_id = p.id AND target_pg.group_id = g.id
+        )
+        AND ' . self::TASK_GROUP_MANAGE_SQL . ')';
 
     public const CONTAINER_MANAGE_SQL = '(' . self::PROJECT_MANAGE_SQL .
         ' OR (' . self::MEMBER_SQL . ' AND c.created_by = a.id))';
@@ -117,11 +127,14 @@ final class AccessService {
 
     public function __construct(private PDO $pdo) {}
 
-    public static function taskWriteQuery(string $itemRule = '1 = 1'): string {
+    public static function taskWriteQuery(
+        string $itemRule = '1 = 1',
+        string $taskAccessRule = self::TASK_ASSIGNED_VIEW_SQL,
+    ): string {
         return 'SELECT t.id FROM tasks t JOIN containers c ON c.id = t.container_id
             JOIN projects p ON p.id = c.project_id ' . self::ACTOR_JOIN . '
             WHERE t.id = :write_task AND t.deleted_at IS NULL AND c.deleted_at IS NULL
-              AND p.archived_at IS NULL AND ' . self::TASK_VIEW_SQL . ' AND (' . $itemRule . ')';
+              AND p.archived_at IS NULL AND ' . $taskAccessRule . ' AND (' . $itemRule . ')';
     }
 
     // Checks if the active actor has creator-level access (admin, creator of the project, or member).
@@ -182,6 +195,8 @@ final class AccessService {
             c.created_by AS container_owner, p.created_by AS project_owner, p.id AS project_id,
             a.is_admin, p.archived_at, (p.archived_at IS NULL) AS can_write,
             ' . self::TASK_EDIT_SQL . ' AS can_edit,
+            ' . self::TASK_SUBTASK_CREATE_SQL . ' AS can_create_subtask,
+            (p.archived_at IS NULL AND ' . self::TASK_ASSIGNED_VIEW_SQL . ') AS can_upload_attachment,
             ' . self::TASK_TITLE_DEADLINE_EDIT_SQL . ' AS can_edit_title_deadline,
             ' . self::TASK_DELETE_SQL . ' AS can_delete,
             ' . self::TASK_GROUP_MANAGE_SQL . ' AS can_manage_groups
@@ -207,7 +222,7 @@ final class AccessService {
     }
 
     public function canChangeTaskStatus(int $userId, int $taskId): bool {
-        return $this->task($userId, $taskId, self::TASK_VIEW_SQL);
+        return $this->task($userId, $taskId, self::TASK_ASSIGNED_VIEW_SQL);
     }
 
     public function canEditTask(int $userId, int $taskId): bool {
@@ -223,7 +238,11 @@ final class AccessService {
     }
 
     public function canManageTaskGroups(int $userId, int $taskId): bool {
-        return $this->task($userId, $taskId, self::PROJECT_MANAGE_SQL);
+        return $this->task($userId, $taskId, self::TASK_GROUP_MANAGE_SQL);
+    }
+
+    public function canMoveTask(int $userId, int $taskId): bool {
+        return $this->task($userId, $taskId, self::TASK_MOVE_SQL);
     }
 
     public function canManageTaskGroup(int $userId, int $taskId, int $groupId): bool {
@@ -249,7 +268,7 @@ final class AccessService {
 
     // These item rules require an accessibleTask() result, not an unchecked task row.
     public function canCreateSubtask(array $task, int $userId): bool {
-        return (bool) $task['can_write'] && (bool) $task['can_edit'];
+        return (bool) $task['can_write'] && (bool) $task['can_create_subtask'];
     }
 
     private function canManageTaskContents(array $task, int $userId): bool {

@@ -62,6 +62,9 @@ class TaskAttachmentController {
         if (!$task['can_write']) {
             return $this->json($response, ['error' => 'Archivierte Projekte sind schreibgeschuetzt'], 403);
         }
+        if (!$task['can_upload_attachment']) {
+            return $this->json($response, ['error' => 'Keine Berechtigung zum Hochladen'], 403);
+        }
         $uploaded = $request->getUploadedFiles();
         $files = $uploaded['files'] ?? $uploaded['file'] ?? null;
         if ($files instanceof UploadedFileInterface) {

@@ -86,18 +86,21 @@ try {
     $subtaskController = new SubtaskController($subtasks);
 
     check($tasks->getById(1, 2)['can_manage_local_groups'] == 1
-        && $tasks->getById(1, 2)['can_manage_groups'] == 0, 'Assigned group member receives local-only assignment rights');
+        && $tasks->getById(1, 2)['can_manage_groups'] == 1, 'Assigned group member receives local and global project-group assignment rights');
     check($access->canManageTaskGroup(2, 1, 11), 'Solo member may manage local target group');
-    check(!$access->canManageTaskGroup(2, 1, 14)
-        && !$access->canManageTaskGroup(2, 1, 13)
-        && !$access->canManageTaskGroup(2, 1, 12), 'Global, foreign and personal targets are forbidden');
+    check($access->canManageTaskGroup(2, 1, 14), 'Assigned local-group member may manage a linked global target');
+    check(!$access->canManageTaskGroup(2, 1, 13)
+        && !$access->canManageTaskGroup(2, 1, 12)
+        && !$access->canManageTaskGroup(2, 1, 15), 'Foreign, personal and unlinked targets are forbidden');
     check($groupController->assignGroup($request, new Response(), ['taskId' => '1', 'groupId' => '11'])->getStatusCode() === 201, 'Solo member adds local team assignment');
     check($groupController->removeGroup($request, new Response(), ['taskId' => '1', 'groupId' => '11'])->getStatusCode() === 200, 'Solo member removes local team assignment');
-    check(!$groups->assignGroup(1, 14, 2) && !$groups->assignGroup(1, 13, 2)
-        && !$groups->assignGroup(1, 12, 2) && !$groups->assignGroup(1, 15, 2), 'Model rejects global, foreign, personal and unlinked assignments');
-    check($groupController->assignGroup($request, new Response(), ['taskId' => '1', 'groupId' => '14'])->getStatusCode() === 403, 'Controller rejects global assignment');
+    check(!$groups->assignGroup(1, 13, 2)
+        && !$groups->assignGroup(1, 12, 2) && !$groups->assignGroup(1, 15, 2), 'Model rejects foreign, personal and unlinked assignments');
+    check($groupController->assignGroup($request, new Response(), ['taskId' => '1', 'groupId' => '14'])->getStatusCode() === 201, 'Assigned local-group member adds a global project group through API');
+    check($groupController->removeGroup($request, new Response(), ['taskId' => '1', 'groupId' => '14'])->getStatusCode() === 200, 'Assigned local-group member removes a global project group through API');
     check($groups->assignGroup(1, 14, 1), 'Owner may still assign global groups');
-    check(!$groups->removeGroup(1, 14, 2), 'Solo member cannot remove assigned global group');
+    check($groups->removeGroup(1, 14, 2), 'Member removes assigned global group directly');
+    check($groups->assignGroup(1, 14, 1), 'Owner can reassign global group');
     check($groups->removeGroup(1, 14, 1), 'Owner may still remove global assignment');
     check($groups->assignGroup(2, 16, 2), 'Member of an assigned local group may add local assignments');
 
@@ -115,7 +118,37 @@ try {
     check($access->canEditTaskTitleDeadline(2, 3), 'Owner of an assigned personal group can edit task content');
     check($access->canViewTask(2, 4) && !$access->canEditTaskTitleDeadline(2, 4),
         'A global-group assignment grants read access but not task-content rights');
-    check(!$access->canDeleteTask(2, 1) && !$access->canManageTaskGroups(2, 1), 'Solo assignment grants no deletion or group-management rights');
+    check($tasks->getById(4, 2)['can_create_subtasks'] == 1,
+        'Directly assigned global-group member can create subtasks');
+    check($subtaskController->create(
+        $request->withParsedBody(['title' => 'Global member item']),
+        new Response(),
+        ['taskId' => '4'],
+    )->getStatusCode() === 201, 'Assigned global-group member creates a subtask');
+    $globalSubtasks = json_decode((string) $subtaskController->index(
+        $request,
+        new Response(),
+        ['taskId' => '4'],
+    )->getBody(), true);
+    check($globalSubtasks['subtasks'][0]['can_complete'] && !$globalSubtasks['subtasks'][0]['can_edit'],
+        'Assigned global-group member can complete but not edit subtask title');
+    check(!$access->canDeleteTask(2, 1) && $access->canManageTaskGroups(2, 1)
+        && !$access->canMoveTask(2, 1), 'Assignment grants group-management but no task deletion or move rights');
+    check(!$access->canManageTaskGroups(2, 4)
+        && !$access->canManageTaskGroup(2, 4, 11)
+        && !$access->canManageTaskGroup(2, 4, 14), 'Global assignment alone grants no group-management rights');
+    check($groups->assignGroup(3, 14, 2) && $groups->removeGroup(3, 14, 2),
+        'Personal task assignee can assign and remove global project groups');
+    check($groupController->assignGroup($request->withAttribute('user_id', 3), new Response(), ['taskId' => '2', 'groupId' => '14'])->getStatusCode() === 201,
+        'Member with only multi-member local-group access can assign a global project group');
+    check($groupController->removeGroup($request->withAttribute('user_id', 3), new Response(), ['taskId' => '2', 'groupId' => '14'])->getStatusCode() === 200,
+        'Member with only multi-member local-group access can remove a global project group');
+    try {
+        $tasks->move(2, 1, 3);
+        throw new RuntimeException('Group-management rights must not permit moving tasks');
+    } catch (DomainException $exception) {
+        check(!$db->inTransaction(), 'Denied task move rolls back');
+    }
     foreach ($tasks->getAllByUser(2) as $item) {
         check($item['can_edit'] == $tasks->getById((int) $item['id'], 2)['can_edit'], 'List and detail content rights agree');
         check($item['can_edit_title_deadline'] == $tasks->getById((int) $item['id'], 2)['can_edit_title_deadline'], 'List and detail rights agree');
@@ -162,7 +195,8 @@ try {
         && $tasks->getById(1, 2)['description'] === 'Group update', 'Multi-member assigned group retains task-content writes');
     check($db->query('SELECT role FROM users_groups WHERE groups_id = 10 AND user_id = 2')->fetchColumn() === 'owner', 'Retained member role is preserved');
     check($projectController->updateGroup($admin->withParsedBody(['name' => 'Solo again', 'user_ids' => [2]]), new Response(), $args)->getStatusCode() === 200, 'Admin edits a foreign-owned local group');
-    check($access->canEditTaskTitleDeadline(2, 1) && !$access->canViewTask(3, 1), 'Removing a user from the assigned group revokes only that user access');
+    check($access->canEditTaskTitleDeadline(2, 1) && !$access->canViewTask(3, 1),
+        'Membership in another project group does not expose an unassigned task');
     check($groups->addUserToGroup(3, 10, 1) && $access->canEditTaskTitleDeadline(3, 1), 'Group membership grants the same task rights to each member');
     check($groups->removeUserFromGroup(3, 10, 1) && $access->canEditTaskTitleDeadline(2, 1), 'Removing another group member does not revoke retained member rights');
     $db->exec('INSERT INTO users_groups (user_id, groups_id) VALUES (6, 10)');
@@ -213,6 +247,8 @@ try {
     check($tasks->getById(1, 5)['can_edit_title_deadline'] == 0, 'Archived detail reports limited editing disabled');
     check(!$projects->updateGroup(1, 10, 'Archived', [2], 5), 'Archive also blocks local group editing');
     check(!$groups->assignGroup(1, 16, 2) && !$groups->removeGroup(1, 10, 2), 'Archive blocks local assignments');
+    check(!$groups->assignGroup(1, 14, 2) && !$access->canManageTaskGroup(5, 1, 14),
+        'Archive blocks global assignments for members and admins');
     check($subtaskController->create($admin->withParsedBody(['title' => 'Denied']), new Response(), ['taskId' => '1'])->getStatusCode() === 403, 'Archive blocks subtask creation');
 
     echo "Single-member group tests passed\n";

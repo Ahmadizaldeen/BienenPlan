@@ -89,12 +89,12 @@ class Task {
                 u.name AS creator_name,
                 " . AccessService::creatorAccessSql() . " AS creator_has_project_access,
                 " . AccessService::TASK_EDIT_SQL . " AS can_edit,
-                " . AccessService::TASK_EDIT_SQL . " AS can_create_subtasks,
+                " . AccessService::TASK_SUBTASK_CREATE_SQL . " AS can_create_subtasks,
                 " . AccessService::TASK_TITLE_DEADLINE_EDIT_SQL . " AS can_edit_title_deadline,
                 " . AccessService::TASK_DELETE_SQL . " AS can_delete,
                 " . AccessService::TASK_GROUP_MANAGE_SQL . " AS can_manage_groups,
                 " . AccessService::TASK_LOCAL_GROUP_MANAGE_SQL . " AS can_manage_local_groups,
-                (p.archived_at IS NULL) AS can_change_status,
+                (p.archived_at IS NULL AND " . AccessService::TASK_ASSIGNED_VIEW_SQL . ") AS can_change_status,
                 GROUP_CONCAT(DISTINCT CASE WHEN $assignedGroup THEN gt.group_id END ORDER BY gt.group_id) AS group_ids,
                 GROUP_CONCAT(DISTINCT CASE WHEN $assignedGroup THEN g.name END ORDER BY g.name SEPARATOR ', ') AS group_names
             FROM tasks t
@@ -128,10 +128,11 @@ class Task {
     public function getById(int $id, ?int $userId = null): ?array {
         $assignedGroup = TaskAccess::ASSIGNED_GROUP_SQL;
         $permissions = $userId === null ? '' : AccessService::TASK_EDIT_SQL . ' AS can_edit, ' .
-            AccessService::TASK_EDIT_SQL . ' AS can_create_subtasks, ' .
+            AccessService::TASK_SUBTASK_CREATE_SQL . ' AS can_create_subtasks, ' .
             AccessService::TASK_TITLE_DEADLINE_EDIT_SQL . ' AS can_edit_title_deadline, ' .
             AccessService::TASK_DELETE_SQL . ' AS can_delete, ' .
-            AccessService::TASK_GROUP_MANAGE_SQL . ' AS can_manage_groups, (p.archived_at IS NULL) AS can_change_status, ';
+            AccessService::TASK_GROUP_MANAGE_SQL . ' AS can_manage_groups, ' .
+            '(p.archived_at IS NULL AND ' . AccessService::TASK_ASSIGNED_VIEW_SQL . ') AS can_change_status, ';
         if ($userId !== null) $permissions .= AccessService::TASK_LOCAL_GROUP_MANAGE_SQL . ' AS can_manage_local_groups, ';
         $sql = "SELECT 
                     t.*, 
@@ -200,7 +201,7 @@ class Task {
                 " . AccessService::ACTOR_JOIN . "
                 SET t.status = :status
                 WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
-                  AND p.archived_at IS NULL AND " . AccessService::TASK_VIEW_SQL;
+                  AND p.archived_at IS NULL AND " . AccessService::TASK_ASSIGNED_VIEW_SQL;
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['id' => $id, 'status' => $status, 'access_user' => $userId]);
         // MySQL reports zero changed rows for an authorized, unchanged value too.
@@ -282,7 +283,7 @@ class Task {
             $lock = $this->pdo->prepare('SELECT id FROM containers WHERE id = :id FOR UPDATE');
             $lock->execute(['id' => $containerId]);
             $access = new AccessService($this->pdo);
-            if (!$access->canManageTaskGroups($userId, $id) || !$access->canCreateTask($userId, $containerId)) {
+            if (!$access->canMoveTask($userId, $id) || !$access->canCreateTask($userId, $containerId)) {
                 throw new \DomainException('Keine Berechtigung oder Container nicht gefunden');
             }
             // Keep project-scoped assignments valid by rejecting cross-project moves in SQL.
@@ -291,13 +292,13 @@ class Task {
                 JOIN containers destination ON destination.id = :destination AND destination.project_id = p.id
                 SET t.container_id = destination.id
                 WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
-                  AND destination.deleted_at IS NULL AND ' . AccessService::TASK_GROUP_MANAGE_SQL);
+                  AND destination.deleted_at IS NULL AND ' . AccessService::TASK_MOVE_SQL);
             $stmt->execute(['id' => $id, 'destination' => $containerId, 'access_user' => $userId]);
             $current = $this->pdo->prepare('SELECT t.container_id FROM tasks t
                 JOIN containers c ON c.id = t.container_id JOIN projects p ON p.id = c.project_id
                 ' . AccessService::ACTOR_JOIN . '
                 WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
-                  AND ' . AccessService::TASK_GROUP_MANAGE_SQL);
+                  AND ' . AccessService::TASK_MOVE_SQL);
             $current->execute(['id' => $id, 'access_user' => $userId]);
             if ((int) $current->fetchColumn() !== $containerId) {
                 throw new \DomainException('Tasks koennen nur innerhalb desselben Projekts verschoben werden');

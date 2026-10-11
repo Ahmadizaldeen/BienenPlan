@@ -1,6 +1,6 @@
 # BienenPlan
 
-BienenPlan ist eine plattformübergreifende Projektmanagement-Anwendung. Das Backend verwaltet Benutzer, Gruppen, Projekte, Container und Aufgaben. Die fachliche Zuordnung von Aufgaben erfolgt über Gruppen: Ein Benutzer sieht eine Aufgabe, wenn er Mitglied einer der zugewiesenen Gruppen ist.
+BienenPlan ist eine plattformübergreifende Projektmanagement-Anwendung. Das Backend verwaltet Benutzer, Gruppen, Projekte, Container und Aufgaben. Projektgruppenmitglieder sehen eine Aufgabe nur, wenn ihre Gruppe direkt dieser Aufgabe zugewiesen ist.
 
 ## Zentrale Berechtigungen
 
@@ -18,11 +18,15 @@ dieselben Regeln fuer Einzelzugriff und SQL-gefilterte Listen.
   Task-Ownership gewaehrt nach vollstaendigem Projektmitgliedschaftsentzug
   keinen Zugriff mehr, ausser eine eigene lokale oder persoenliche
   Aufgabenzuweisung besteht weiter. Historische Ersteller bleiben gespeichert.
-- Task-Inhalte bearbeiten duerfen Admin, Projekt-Owner und berechtigter
-  Task-Ersteller. Sichtbare Tasks duerfen Mitglieder im Status aendern.
+- Task-Inhalte bearbeiten duerfen Admin, Projekt-Owner, berechtigter
+  Task-Ersteller und Mitglieder einer direkt zugewiesenen lokalen Task-Gruppe.
+  Projektgruppen-Mitgliedschaft allein macht Aufgaben nicht sichtbar.
+- Mitglieder direkt zugewiesener Projektgruppen duerfen Unteraufgaben erstellen
+  und abhaken. Titel aendern und loeschen duerfen sie nur, wenn die bisherigen
+  aufgabenspezifischen Rechte dafuer bestehen.
 - Mitglieder jeder einer Aufgabe zugewiesenen lokalen Gruppe sowie der
   Eigentuemer einer zugewiesenen persoenlichen Gruppe duerfen vorlaeufig alle
-  Task-Inhalte bearbeiten, lokale Gruppen desselben Projekts zuweisen/entfernen
+  Task-Inhalte bearbeiten, lokale und globale Projektgruppen zuweisen/entfernen
   und Unteraufgaben vollstaendig verwalten. Persoenliche Gruppen geben nur
   Zugriff auf die zugewiesene Aufgabe. Task-Loeschung und das Loeschen fremder
   Anhaenge werden dadurch nicht erlaubt. Details stehen in der verbindlichen
@@ -30,12 +34,13 @@ dieselben Regeln fuer Einzelzugriff und SQL-gefilterte Listen.
 - Container-Owner duerfen Tasks im eigenen Container loeschen, erhalten aber
   keinen automatischen Task-Lesezugriff. Leere Container werden weich geloescht;
   aktive Tasks verhindern das Entfernen mit `409`.
-- Gruppen fuer Projekte und Task-Zuweisungen verwalten nur Admin und
-  Projekt-Owner. Task-Gruppen muessen zum Projekt gehoeren.
-  Ausnahme: Berechtigte Mitglieder lokaler Gruppen sowie der Eigentuemer einer
-  zugewiesenen persoenlichen Gruppe duerfen lokale Gruppen desselben Projekts
-  hinzufuegen und entfernen. `can_manage_local_groups` kennzeichnet dieses Recht;
-  `can_manage_groups` bleibt das volle Owner-/Admin-Recht.
+- Gruppen dem Projekt zuordnen duerfen nur Admin und Projekt-Owner.
+  Task-Zuweisungen duerfen zusaetzlich berechtigte Mitglieder lokaler Gruppen
+  sowie der Eigentuemer einer zugewiesenen persoenlichen Gruppe verwalten,
+  auch fuer globale Gruppen. Zielgruppen muessen dem Projekt zugeordnet sein.
+  `can_manage_groups` kennzeichnet dieses Recht; `can_manage_local_groups`
+  bleibt als kompatibles Feld erhalten. Details stehen in der
+  [Berechtigungsmatrix](docs/BERECHTIGUNGSMATRIX.md).
 - Globale Gruppen (`is_global = true`, `project_id = NULL`) werden nur von
   Admin erstellt und in ihrer Mitgliedschaft verwaltet. Sie sind auswaehlbar,
   aber nicht automatisch allen Projekten zugeordnet.
@@ -245,13 +250,13 @@ wird automatisch ueber seine persoenliche Gruppe zugewiesen; Task und Zuweisung
 werden in einer Transaktion gespeichert. Fehlt diese Gruppe oder ihre
 Mitgliedschaft, wird die Erstellung zurueckgerollt und ein Serverfehler gemeldet.
 
-Admin und Projektbesitzer sehen alle aktiven Aufgaben. Andere Benutzer sehen
-Tasks ueber ihre zugewiesenen lokalen/globalen Gruppen, eine zugewiesene
-persoenliche Gruppe oder als Task-Ersteller mit Projektzugriff. Die persoenliche
-Standardzuweisung fuegt keine Gruppe zum Projekt hinzu und gewaehrt nur Zugriff
-auf die konkret zugewiesene Aufgabe, nicht auf andere Projektaufgaben. Dieselben
-Regeln gelten fuer Unteraufgaben und Anhaenge. Geloeschte Container bleiben
-ausgeschlossen.
+Admin und Projektbesitzer sehen alle aktiven Projektaufgaben. Andere
+Projektgruppenmitglieder sehen Aufgaben nur, wenn eine ihrer Gruppen direkt der
+Aufgabe zugewiesen ist. Die persoenliche Standardzuweisung fuegt keine Gruppe
+zum Projekt hinzu und gewaehrt nur Zugriff auf die konkret zugewiesene Aufgabe.
+Mitglieder direkt zugewiesener Projektgruppen duerfen dort Unteraufgaben
+erstellen und abhaken; andere Unteraufgabenrechte bleiben aufgabenspezifisch.
+Geloeschte Container bleiben ausgeschlossen.
 Archivierte Projekte sind nur fuer Admin schreibgeschuetzt lesbar.
 Eine Task dürfen Admin, Projekt-Owner sowie berechtigte
 Projektmitglieder als Task-Ersteller oder Container-Inhaber löschen.
