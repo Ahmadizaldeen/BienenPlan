@@ -192,7 +192,9 @@ try {
     $db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
     check(!$projects->update(1, ['name' => 'Denied'], 5) && !$projects->archive(1, 5), 'Foreign actor cannot update or archive a project directly');
     check($projects->update(1, ['name' => 'One'], 1) && $containers->update(1, 'Work', 1), 'Unchanged authorized project and container updates succeed');
-    check(!$projects->addGroup(1, 12, 4) && !$groups->assignGroup(2, 12, 4), 'Member cannot bypass group management policy using models');
+    check(!$projects->addGroup(1, 12, 4), 'Member cannot manage the project group allowlist');
+    check($groups->assignGroup(2, 12, 4) && $groups->removeGroup(2, 12, 4),
+        'Assigned local-group member can manage global task assignments directly');
     check($taskController->create($request->withAttribute('user_id', 5)->withParsedBody([
         'title' => 'No',
         'container_id' => 1,
@@ -207,7 +209,10 @@ try {
         'created_by' => 6,
     ]), new Response())->getStatusCode() === 201, 'Member can create container');
     check((int) $db->query("SELECT created_by FROM containers WHERE title = 'Member container'")->fetchColumn() === 4, 'Container ownership comes from authenticated user');
-    check($groupController->assignGroup($member, new Response(), ['taskId' => '2', 'groupId' => '12'])->getStatusCode() === 403, 'Member cannot change assignments');
+    check($groupController->assignGroup($member, new Response(), ['taskId' => '2', 'groupId' => '12'])->getStatusCode() === 201,
+        'Assigned local-group member can add a global project group');
+    check($groupController->removeGroup($member, new Response(), ['taskId' => '2', 'groupId' => '12'])->getStatusCode() === 200,
+        'Assigned local-group member can remove a global project group');
     check($groupController->createGroup($request->withParsedBody(['name' => 'No']), new Response(), [])->getStatusCode() === 403, 'Owner cannot create global group');
     check($groupController->createGroup($request->withAttribute('user_id', 6)->withParsedBody(['name' => 'New global']), new Response(), [])->getStatusCode() === 201, 'Admin creates global group');
     check($projectController->createGroup($request->withParsedBody(['name' => 'Local', 'user_ids' => [4]]), new Response(), ['id' => '1'])->getStatusCode() === 409, 'Local names unique within project');

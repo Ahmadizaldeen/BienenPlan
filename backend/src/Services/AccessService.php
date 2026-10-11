@@ -92,13 +92,17 @@ final class AccessService {
     public const TASK_DELETE_SQL = '(p.archived_at IS NULL AND (' . self::PROJECT_MANAGE_SQL . ' OR (
         ' . self::MEMBER_SQL . ' AND (t.created_by = a.id OR c.created_by = a.id))))';
 
-    // Checks if the active actor can manage the task group (project not archived and manage project).
-    public const TASK_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND ' . self::PROJECT_MANAGE_SQL . ')';
-    public const TASK_LOCAL_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND (
+    public const TASK_MOVE_SQL = '(p.archived_at IS NULL AND ' . self::PROJECT_MANAGE_SQL . ')';
+    public const TASK_GROUP_MANAGE_SQL = '(p.archived_at IS NULL AND (
         ' . self::PROJECT_MANAGE_SQL . ' OR ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '))';
-    public const TASK_TARGET_GROUP_MANAGE_SQL = '(' . self::PROJECT_MANAGE_SQL . '
-        OR (g.personal_user_id IS NULL AND g.is_global = 0 AND g.project_id = p.id
-            AND ' . self::TASK_ASSIGNED_COLLABORATOR_SQL . '))';
+    public const TASK_LOCAL_GROUP_MANAGE_SQL = self::TASK_GROUP_MANAGE_SQL;
+    public const TASK_TARGET_GROUP_MANAGE_SQL = '(g.personal_user_id IS NULL
+        AND (g.is_global = 1 OR (g.is_global = 0 AND g.project_id = p.id))
+        AND EXISTS (
+            SELECT 1 FROM projects_groups target_pg
+            WHERE target_pg.project_id = p.id AND target_pg.group_id = g.id
+        )
+        AND ' . self::TASK_GROUP_MANAGE_SQL . ')';
 
     public const CONTAINER_MANAGE_SQL = '(' . self::PROJECT_MANAGE_SQL .
         ' OR (' . self::MEMBER_SQL . ' AND c.created_by = a.id))';
@@ -223,7 +227,11 @@ final class AccessService {
     }
 
     public function canManageTaskGroups(int $userId, int $taskId): bool {
-        return $this->task($userId, $taskId, self::PROJECT_MANAGE_SQL);
+        return $this->task($userId, $taskId, self::TASK_GROUP_MANAGE_SQL);
+    }
+
+    public function canMoveTask(int $userId, int $taskId): bool {
+        return $this->task($userId, $taskId, self::TASK_MOVE_SQL);
     }
 
     public function canManageTaskGroup(int $userId, int $taskId, int $groupId): bool {
