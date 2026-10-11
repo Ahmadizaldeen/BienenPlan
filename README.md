@@ -181,6 +181,42 @@ Die lokale Datenbank wurde am 2026-10-08 nach Backup und Wiederherstellungsprobe
 mit den oben bestaetigten Zuordnungen migriert. Fuer andere Umgebungen muessen
 Schema-Migration und Altgruppen-Einordnung separat durchgefuehrt werden.
 
+### Aenderungserkennung fuer Frontend-Polling
+
+`GET /api/changes` ist authentifizierungspflichtig und liefert
+`next_cursor`, `refresh_required` und `changes`. Ohne `after` wird ein
+Ausgangszustand aufgenommen; danach den undurchsichtigen Cursor mit
+`GET /api/changes?after=<cursor>` uebergeben. Bei Aenderungen geben
+`changes` nur betroffene Bereiche mit `action: invalidate` zurueck, keine
+Datensatz-IDs oder fremden Inhalte. Das Frontend laedt die normalen GET-Listen
+neu und bestaetigt den neuen Cursor erst nach erfolgreichem Neuladen.
+
+Vor Verwendung nach Backup im Wartungsfenster ausfuehren, auch nach einem
+frischen Import von `000_schema.sql`:
+
+```powershell
+php backend\data\sql\migrations\007_add_change_tracking.php
+php backend\tests\ChangeFeedTest.php
+```
+
+Migration 007 erstellt `change_stamps` und je drei Trigger fuer `users`,
+`projects`, `containers`, `tasks`, `groups`, `subtasks`, `task_attachments`,
+`users_groups`, `projects_groups` und `groups_tasks`. Stempel und Fachdaten
+werden zusammen committed oder zurueckgerollt. DDL ist nicht transaktional;
+waehrend Installation oder Wiederholung keine anderen Schreibzugriffe zulassen.
+Bestehende Fachdaten bleiben unveraendert. Die Migration ist wiederholbar und
+entfernt verwaiste Stempel nach Fremdschluessel-Kaskaden.
+
+Der Cursor enthaelt signierte, benutzergebundene Fingerprints der aktuell
+lesbaren Zeilen. Auch entfernte Zeilen und Zugriffsverlust werden erkannt;
+private Passwoerter werden nicht verglichen oder ausgeliefert. Ein konsistenter
+Lesesnapshot und zeilenbezogene Revisionen verhindern Luecken bei verspaeteten
+Commits. Ungueltige/fremde Cursor liefern `400`, inaktive Benutzer `401`;
+fehlende Migration bleibt ein Serverfehler, kein falsches "keine Aenderung".
+Dies ist ein Invalidierungsfeed, kein Auditlog oder chronologischer Ereignisexport.
+Die Pruefung liest die sichtbaren Zeilen serverseitig; bei grossen Datenmengen
+sind Lastmessungen und gegebenenfalls projektspezifische Pruefungen erforderlich.
+
 Die erste Admin-Vergabe erfolgt durch den berechtigten Datenbankbetreiber:
 `UPDATE users SET is_admin = TRUE WHERE id = <gepruefte_user_id> AND deleted_at IS NULL;`.
 Es gibt bewusst keinen oeffentlichen Admin-Vergabe-Endpunkt.
