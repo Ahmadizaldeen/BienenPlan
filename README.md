@@ -22,7 +22,7 @@ dieselben Regeln fuer Einzelzugriff und SQL-gefilterte Listen.
   Task-Ersteller. Sichtbare Tasks duerfen Mitglieder im Status aendern.
 - Mitglieder jeder einer Aufgabe zugewiesenen lokalen Gruppe sowie der
   Eigentuemer einer zugewiesenen persoenlichen Gruppe duerfen vorlaeufig alle
-  Task-Inhalte bearbeiten, lokale Gruppen desselben Projekts zuweisen/entfernen
+  Task-Inhalte bearbeiten, lokale und globale Projektgruppen zuweisen/entfernen
   und Unteraufgaben vollstaendig verwalten. Persoenliche Gruppen geben nur
   Zugriff auf die zugewiesene Aufgabe. Task-Loeschung und das Loeschen fremder
   Anhaenge werden dadurch nicht erlaubt. Details stehen in der verbindlichen
@@ -30,12 +30,13 @@ dieselben Regeln fuer Einzelzugriff und SQL-gefilterte Listen.
 - Container-Owner duerfen Tasks im eigenen Container loeschen, erhalten aber
   keinen automatischen Task-Lesezugriff. Leere Container werden weich geloescht;
   aktive Tasks verhindern das Entfernen mit `409`.
-- Gruppen fuer Projekte und Task-Zuweisungen verwalten nur Admin und
-  Projekt-Owner. Task-Gruppen muessen zum Projekt gehoeren.
-  Ausnahme: Berechtigte Mitglieder lokaler Gruppen sowie der Eigentuemer einer
-  zugewiesenen persoenlichen Gruppe duerfen lokale Gruppen desselben Projekts
-  hinzufuegen und entfernen. `can_manage_local_groups` kennzeichnet dieses Recht;
-  `can_manage_groups` bleibt das volle Owner-/Admin-Recht.
+- Gruppen dem Projekt zuordnen duerfen nur Admin und Projekt-Owner.
+  Task-Zuweisungen duerfen zusaetzlich berechtigte Mitglieder lokaler Gruppen
+  sowie der Eigentuemer einer zugewiesenen persoenlichen Gruppe verwalten,
+  auch fuer globale Gruppen. Zielgruppen muessen dem Projekt zugeordnet sein.
+  `can_manage_groups` kennzeichnet dieses Recht; `can_manage_local_groups`
+  bleibt als kompatibles Feld erhalten. Details stehen in der
+  [Berechtigungsmatrix](docs/BERECHTIGUNGSMATRIX.md).
 - Globale Gruppen (`is_global = true`, `project_id = NULL`) werden nur von
   Admin erstellt und in ihrer Mitgliedschaft verwaltet. Sie sind auswaehlbar,
   aber nicht automatisch allen Projekten zugeordnet.
