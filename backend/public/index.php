@@ -25,6 +25,8 @@ use BienenPlan\Controllers\UserController;
 use BienenPlan\Middleware\AuthMiddleware;
 use BienenPlan\Middleware\CorsMiddleware;
 use BienenPlan\Controllers\ApiController;
+use BienenPlan\Controllers\ChangeController;
+use BienenPlan\Services\ChangeFeed;
 use BienenPlan\Error\BootstrapErrorHandler;
 use Slim\Exception\HttpNotFoundException;
 use BienenPlan\Error\NotFoundHandler;
@@ -55,6 +57,7 @@ try{
     $authMiddleware = new AuthMiddleware($jwtService, $userModel);
     $corsMiddleware = new CorsMiddleware();
     $apiController = new ApiController();
+    $changeController = new ChangeController(new ChangeFeed($pdo, $_ENV['JWT_SECRET'] ?? ''));
     $notFoundHandler = new NotFoundHandler();
 }
 catch (Throwable $e){
@@ -87,7 +90,8 @@ $app->get('/api', [$apiController, 'index']);
 $app->get('/', [$apiController, 'index']); # Setup Route
 // Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
-$app->group('/api', function ($group) use ($taskController, $attachmentController, $subtaskController, $groupController, $projectController, $containerController, $authController, $userController) {
+$app->group('/api', function ($group) use ($taskController, $attachmentController, $subtaskController, $groupController, $projectController, $containerController, $authController, $userController, $changeController) {
+    $group->get('/changes', [$changeController, 'poll']);
     $group->get('/me', [$authController, 'me']);
     $group->post('/me/picture', [$userController, 'uploadPicture']);
     $group->get('/users', [$userController, 'getAll']);

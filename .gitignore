@@ -15,3 +15,5 @@ backend/storage/task_attachments/
 .claude/agents/DOCS.agent.md
 .vscode/settings.json
 backend/src/code_counter.py
+.github/copilot-instructions.md
+.github/instructions/mermaid.instructions.md
