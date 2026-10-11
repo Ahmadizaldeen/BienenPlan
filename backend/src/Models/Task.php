@@ -282,7 +282,7 @@ class Task {
             $lock = $this->pdo->prepare('SELECT id FROM containers WHERE id = :id FOR UPDATE');
             $lock->execute(['id' => $containerId]);
             $access = new AccessService($this->pdo);
-            if (!$access->canManageTaskGroups($userId, $id) || !$access->canCreateTask($userId, $containerId)) {
+            if (!$access->canMoveTask($userId, $id) || !$access->canCreateTask($userId, $containerId)) {
                 throw new \DomainException('Keine Berechtigung oder Container nicht gefunden');
             }
             // Keep project-scoped assignments valid by rejecting cross-project moves in SQL.
@@ -291,13 +291,13 @@ class Task {
                 JOIN containers destination ON destination.id = :destination AND destination.project_id = p.id
                 SET t.container_id = destination.id
                 WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
-                  AND destination.deleted_at IS NULL AND ' . AccessService::TASK_GROUP_MANAGE_SQL);
+                  AND destination.deleted_at IS NULL AND ' . AccessService::TASK_MOVE_SQL);
             $stmt->execute(['id' => $id, 'destination' => $containerId, 'access_user' => $userId]);
             $current = $this->pdo->prepare('SELECT t.container_id FROM tasks t
                 JOIN containers c ON c.id = t.container_id JOIN projects p ON p.id = c.project_id
                 ' . AccessService::ACTOR_JOIN . '
                 WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
-                  AND ' . AccessService::TASK_GROUP_MANAGE_SQL);
+                  AND ' . AccessService::TASK_MOVE_SQL);
             $current->execute(['id' => $id, 'access_user' => $userId]);
             if ((int) $current->fetchColumn() !== $containerId) {
                 throw new \DomainException('Tasks koennen nur innerhalb desselben Projekts verschoben werden');
