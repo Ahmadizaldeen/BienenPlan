@@ -103,9 +103,11 @@ try {
     check($access->canViewTask(6, 1) && $access->canDeleteTask(6, 1), 'Admin has cross-project task access');
     check(count($tasks->getAllByUser(6)) === 3, 'Admin list includes legacy tasks without creator');
     check(count($projects->getAll(6)) === 2 && count($containers->getAll(6)) === 3, 'Admin sees all active projects and containers');
-    check(!$access->canViewTask(2, 1) && $access->canDeleteTask(2, 1), 'Container owner may delete but not read private task');
+    check(!$access->canViewTask(2, 1) && $access->canDeleteTask(2, 1),
+        'Project member cannot read an unassigned task but container owner may delete it');
     check($access->canViewTask(3, 1) && $access->canEditTask(3, 1), 'Task creator with project access edits own task');
-    check(!$access->canViewTask(4, 1) && $access->canViewTask(4, 2), 'Member sees only assigned tasks');
+    check(!$access->canViewTask(4, 1) && $access->canViewTask(4, 2) && !$access->canViewTask(4, 3),
+        'Project member sees only directly assigned tasks');
     check(!$access->canViewProject(5, 1), 'Other project owner has no foreign project access');
     check($access->canManageGroup(1, 10) && !$access->canManageGroup(1, 12), 'Project owner manages only local membership');
     check(!$access->canViewGroup(1, 11) && $access->canViewGroup(1, 12), 'Foreign local group hidden, global group selectable');
@@ -317,7 +319,7 @@ try {
     check($containers->getAll(1, 1) === [] && $tasks->getAllByUser(1, 1) === [], 'Project filter does not expose archive to owner');
     check($access->canViewContainer(6, 1) && $access->canViewTask(6, 2), 'Admin has archive detail access');
     $archivedTask = $tasks->getById(2, 6);
-    check($archivedTask['can_edit'] == 0 && $archivedTask['can_delete'] == 0
+    check($archivedTask['can_edit'] == 0 && $archivedTask['can_create_subtasks'] == 0 && $archivedTask['can_delete'] == 0
         && $archivedTask['can_change_status'] == 0 && $archivedTask['can_manage_groups'] == 0, 'Archived task capabilities are all read-only');
     check($taskController->updateStatus($admin->withParsedBody(['status' => 'open']), new Response(), ['id' => '2'])->getStatusCode() === 403, 'Admin cannot change archived task status');
     check($taskController->update($admin->withParsedBody(['title' => 'No']), new Response(), ['id' => '2'])->getStatusCode() === 403, 'Admin cannot edit archived task');

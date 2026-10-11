@@ -94,6 +94,16 @@ check($controller->upload($memberUpload, new Response(), $args)->getStatusCode()
 $db->exec('INSERT INTO users_groups VALUES (4, 1)');
 check($controller->delete($groupMember, new Response(), $memberAttachmentArgs)->getStatusCode() === 200, 'Member can delete own upload');
 
+$db->exec('INSERT INTO tasks (id, container_id, created_by) VALUES (3, 1, 1)');
+$projectMember = $request->withAttribute('user_id', 3);
+$projectMemberTask = $model->accessibleTask(3, 3);
+check($projectMemberTask === null, 'Project membership alone does not grant task access');
+$projectMemberUpload = $projectMember->withUploadedFiles([
+    'files' => [fileUpload('not-allowed.txt', 'No upload')],
+]);
+check($controller->upload($projectMemberUpload, new Response(), ['id' => '3'])->getStatusCode() === 404,
+    'Unassigned project member cannot upload attachments to an invisible task');
+
 $db->exec('INSERT INTO groups (id, personal_user_id, project_id, is_global) VALUES (2, 2, NULL, 0);
     INSERT INTO tasks (id, container_id, created_by) VALUES (2, 1, 1);
     INSERT INTO groups_tasks (task_id, group_id) VALUES (2, 2)');

@@ -118,6 +118,20 @@ try {
     check($access->canEditTaskTitleDeadline(2, 3), 'Owner of an assigned personal group can edit task content');
     check($access->canViewTask(2, 4) && !$access->canEditTaskTitleDeadline(2, 4),
         'A global-group assignment grants read access but not task-content rights');
+    check($tasks->getById(4, 2)['can_create_subtasks'] == 1,
+        'Directly assigned global-group member can create subtasks');
+    check($subtaskController->create(
+        $request->withParsedBody(['title' => 'Global member item']),
+        new Response(),
+        ['taskId' => '4'],
+    )->getStatusCode() === 201, 'Assigned global-group member creates a subtask');
+    $globalSubtasks = json_decode((string) $subtaskController->index(
+        $request,
+        new Response(),
+        ['taskId' => '4'],
+    )->getBody(), true);
+    check($globalSubtasks['subtasks'][0]['can_complete'] && !$globalSubtasks['subtasks'][0]['can_edit'],
+        'Assigned global-group member can complete but not edit subtask title');
     check(!$access->canDeleteTask(2, 1) && $access->canManageTaskGroups(2, 1)
         && !$access->canMoveTask(2, 1), 'Assignment grants group-management but no task deletion or move rights');
     check(!$access->canManageTaskGroups(2, 4)
@@ -181,7 +195,8 @@ try {
         && $tasks->getById(1, 2)['description'] === 'Group update', 'Multi-member assigned group retains task-content writes');
     check($db->query('SELECT role FROM users_groups WHERE groups_id = 10 AND user_id = 2')->fetchColumn() === 'owner', 'Retained member role is preserved');
     check($projectController->updateGroup($admin->withParsedBody(['name' => 'Solo again', 'user_ids' => [2]]), new Response(), $args)->getStatusCode() === 200, 'Admin edits a foreign-owned local group');
-    check($access->canEditTaskTitleDeadline(2, 1) && !$access->canViewTask(3, 1), 'Removing a user from the assigned group revokes only that user access');
+    check($access->canEditTaskTitleDeadline(2, 1) && !$access->canViewTask(3, 1),
+        'Membership in another project group does not expose an unassigned task');
     check($groups->addUserToGroup(3, 10, 1) && $access->canEditTaskTitleDeadline(3, 1), 'Group membership grants the same task rights to each member');
     check($groups->removeUserFromGroup(3, 10, 1) && $access->canEditTaskTitleDeadline(2, 1), 'Removing another group member does not revoke retained member rights');
     $db->exec('INSERT INTO users_groups (user_id, groups_id) VALUES (6, 10)');

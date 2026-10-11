@@ -32,7 +32,10 @@ class Subtask {
     public function create(int $taskId, int $userId, string $title): int {
         $stmt = $this->pdo->prepare('INSERT INTO subtasks (task_id, created_by, title, completed)
             SELECT :task_id, :user_id, :title, 0 WHERE EXISTS (' .
-            AccessService::taskWriteQuery(AccessService::TASK_EDIT_SQL) . ')');
+            AccessService::taskWriteQuery(
+                AccessService::TASK_SUBTASK_CREATE_SQL,
+                AccessService::TASK_VIEW_SQL,
+            ) . ')');
         $stmt->execute(['task_id' => $taskId, 'user_id' => $userId, 'title' => $title,
             'write_task' => $taskId, 'access_user' => $userId]);
         if ($stmt->rowCount() !== 1) {
@@ -52,9 +55,12 @@ class Subtask {
             }
         }
         $itemRule = array_key_exists('title', $changes) ? AccessService::TASK_EDIT_SQL : '1 = 1';
+        $taskAccessRule = array_key_exists('completed', $changes)
+            ? AccessService::TASK_VIEW_SQL
+            : AccessService::TASK_ASSIGNED_VIEW_SQL;
         $stmt = $this->pdo->prepare('UPDATE subtasks SET ' . implode(', ', $fields) .
             ' WHERE task_id = :task_id AND id = :id AND deleted_at IS NULL
-              AND EXISTS (' . AccessService::taskWriteQuery($itemRule) . ')');
+              AND EXISTS (' . AccessService::taskWriteQuery($itemRule, $taskAccessRule) . ')');
         $stmt->execute($parameters);
         if ($stmt->rowCount() > 0) return true;
         $task = $this->accessibleTask($taskId, $userId);

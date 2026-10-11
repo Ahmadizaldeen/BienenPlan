@@ -89,12 +89,12 @@ class Task {
                 u.name AS creator_name,
                 " . AccessService::creatorAccessSql() . " AS creator_has_project_access,
                 " . AccessService::TASK_EDIT_SQL . " AS can_edit,
-                " . AccessService::TASK_EDIT_SQL . " AS can_create_subtasks,
+                " . AccessService::TASK_SUBTASK_CREATE_SQL . " AS can_create_subtasks,
                 " . AccessService::TASK_TITLE_DEADLINE_EDIT_SQL . " AS can_edit_title_deadline,
                 " . AccessService::TASK_DELETE_SQL . " AS can_delete,
                 " . AccessService::TASK_GROUP_MANAGE_SQL . " AS can_manage_groups,
                 " . AccessService::TASK_LOCAL_GROUP_MANAGE_SQL . " AS can_manage_local_groups,
-                (p.archived_at IS NULL) AS can_change_status,
+                (p.archived_at IS NULL AND " . AccessService::TASK_ASSIGNED_VIEW_SQL . ") AS can_change_status,
                 GROUP_CONCAT(DISTINCT CASE WHEN $assignedGroup THEN gt.group_id END ORDER BY gt.group_id) AS group_ids,
                 GROUP_CONCAT(DISTINCT CASE WHEN $assignedGroup THEN g.name END ORDER BY g.name SEPARATOR ', ') AS group_names
             FROM tasks t
@@ -128,10 +128,11 @@ class Task {
     public function getById(int $id, ?int $userId = null): ?array {
         $assignedGroup = TaskAccess::ASSIGNED_GROUP_SQL;
         $permissions = $userId === null ? '' : AccessService::TASK_EDIT_SQL . ' AS can_edit, ' .
-            AccessService::TASK_EDIT_SQL . ' AS can_create_subtasks, ' .
+            AccessService::TASK_SUBTASK_CREATE_SQL . ' AS can_create_subtasks, ' .
             AccessService::TASK_TITLE_DEADLINE_EDIT_SQL . ' AS can_edit_title_deadline, ' .
             AccessService::TASK_DELETE_SQL . ' AS can_delete, ' .
-            AccessService::TASK_GROUP_MANAGE_SQL . ' AS can_manage_groups, (p.archived_at IS NULL) AS can_change_status, ';
+            AccessService::TASK_GROUP_MANAGE_SQL . ' AS can_manage_groups, ' .
+            '(p.archived_at IS NULL AND ' . AccessService::TASK_ASSIGNED_VIEW_SQL . ') AS can_change_status, ';
         if ($userId !== null) $permissions .= AccessService::TASK_LOCAL_GROUP_MANAGE_SQL . ' AS can_manage_local_groups, ';
         $sql = "SELECT 
                     t.*, 
@@ -200,7 +201,7 @@ class Task {
                 " . AccessService::ACTOR_JOIN . "
                 SET t.status = :status
                 WHERE t.id = :id AND t.deleted_at IS NULL AND c.deleted_at IS NULL
-                  AND p.archived_at IS NULL AND " . AccessService::TASK_VIEW_SQL;
+                  AND p.archived_at IS NULL AND " . AccessService::TASK_ASSIGNED_VIEW_SQL;
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['id' => $id, 'status' => $status, 'access_user' => $userId]);
         // MySQL reports zero changed rows for an authorized, unchanged value too.

@@ -126,7 +126,7 @@ try {
     }
 
     $before = $feed->poll(2)['next_cursor'];
-    $db->exec("UPDATE tasks SET title = 'Secret changed' WHERE id IN (2, 3);
+    $db->exec("UPDATE tasks SET title = 'Secret changed' WHERE id = 2;
         UPDATE containers SET title = 'Secret container changed' WHERE id = 2;
         UPDATE subtasks SET title = 'Secret subtask changed' WHERE id = 2;
         UPDATE task_attachments SET original_name = 'Hidden-new.txt' WHERE id = 2;
@@ -134,7 +134,6 @@ try {
         UPDATE projects SET name = 'Hidden renamed' WHERE id = 2;
         UPDATE users SET password_hash = 'private-password-change' WHERE id = 3");
     check(!$feed->poll(2, $before)['refresh_required'], 'Hidden contents and private password changes do not leak through polling');
-
     $before = $feed->poll(1)['next_cursor'];
     // Preserve the auto-update timestamp too, so this is a genuinely unchanged row.
     $db->exec('UPDATE tasks SET status = status, updated_at = updated_at WHERE id = 1');

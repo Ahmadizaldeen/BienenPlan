@@ -9,6 +9,7 @@ use BienenPlan\Models\Group;
 use BienenPlan\Models\Project;
 use BienenPlan\Models\Subtask;
 use BienenPlan\Models\Task;
+use BienenPlan\Services\AccessService;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response;
 
@@ -31,10 +32,12 @@ $db->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, deleted_at TEXT, is_admin
     INSERT INTO projects VALUES (1, 1, NULL);
     INSERT INTO containers VALUES (1, 1, 2, NULL);
     INSERT INTO tasks VALUES (1, 1, NULL, 1), (2, 1, NULL, 1), (3, 1, NULL, 4);
-    INSERT INTO groups VALUES (1, NULL, 1, 0);
+    INSERT INTO groups VALUES (1, NULL, 1, 0), (2, NULL, NULL, 1);
     INSERT INTO groups_tasks VALUES (1, 1);
     INSERT INTO projects_groups VALUES (1, 1);
+    INSERT INTO projects_groups VALUES (1, 2);
     INSERT INTO users_groups VALUES (3, 1), (4, 1);
+    INSERT INTO users_groups VALUES (3, 2);
     INSERT INTO groups_tasks VALUES (3, 1);
     INSERT INTO subtasks VALUES (20, 1, "Legacy", 0, NULL, NULL, NULL), (21, 1, "Member-created", 0, 3, NULL, NULL),
         (22, 3, "Created by another user", 0, 3, NULL, NULL);');
@@ -72,6 +75,30 @@ check($model->byId(1, $item['id']) !== null, 'Denied subtask deletion retains th
 $db->exec('UPDATE projects SET archived_at = NULL WHERE id = 1');
 $member = $request->withAttribute('user_id', 3);
 check($controller->create($member->withParsedBody(['title' => 'Member-created']), new Response(), $args)->getStatusCode() === 201, 'Assigned local-group members can create');
+check($controller->index($member, new Response(), ['taskId' => '2'])->getStatusCode() === 404,
+    'Project group member cannot see an unassigned project task');
+$db->exec('INSERT INTO groups_tasks VALUES (2, 2)');
+$projectMemberCreate = $controller->create(
+    $member->withParsedBody(['title' => 'Directly assigned item']),
+    new Response(),
+    ['taskId' => '2'],
+);
+check($projectMemberCreate->getStatusCode() === 201, 'Assigned global-group member can create a subtask');
+$projectMemberItem = json_decode((string) $projectMemberCreate->getBody(), true);
+check($projectMemberItem['can_complete'] === true && !$projectMemberItem['can_edit'] && !$projectMemberItem['can_delete'],
+    'Assigned global-group member can complete but cannot edit or delete the subtask');
+check($controller->update(
+    $member->withParsedBody(['completed' => true]),
+    new Response(),
+    ['taskId' => '2', 'subtaskId' => (string) $projectMemberItem['id']],
+)->getStatusCode() === 200, 'Assigned global-group member can complete a subtask');
+check($controller->update(
+    $member->withParsedBody(['title' => 'Not allowed']),
+    new Response(),
+    ['taskId' => '2', 'subtaskId' => (string) $projectMemberItem['id']],
+)->getStatusCode() === 403, 'Assigned global-group member cannot edit subtask titles');
+check((new AccessService($db))->canChangeTaskStatus(3, 2),
+    'Assigned global-group member retains the existing task-status permission');
 $taskCreator = $request->withAttribute('user_id', 4);
 $taskCreatorIndex = json_decode((string) $controller->index($taskCreator, new Response(), ['taskId' => '3'])->getBody(), true);
 check($taskCreatorIndex['can_create'] === true, 'Task creator can create subtasks');
@@ -136,7 +163,9 @@ check(!$containerModel->canManage(30, 2), 'Project member cannot manage containe
 check($containerModel->canManage(30, 1), 'Project owner can manage containers');
 $taskModel = new Task($projectDb);
 check($taskModel->isVisibleToUser(40, 2), 'Member can see tasks assigned to their project group');
-check(!$taskModel->isVisibleToUser(41, 2), 'Member cannot see tasks assigned to another group');
+check(!$taskModel->isVisibleToUser(41, 2), 'Project group member cannot see an unassigned task');
+check(!$taskModel->canEdit(41, 2) && !$taskModel->canChangeStatus(41, 2),
+    'Unassigned project task cannot be edited or have its status changed');
 check(!$taskModel->isVisibleToUser(41, 3), 'Group outside the project cannot grant task access');
 check($taskModel->isVisibleToUser(41, 1), 'Project owner can see every project task');
 $groupModel = new Group($projectDb);
