@@ -17,6 +17,7 @@ class ApiController
             'endpoints' => [
                 'POST /api/register' => 'Benutzer registrieren',
                 'POST /api/login' => 'Benutzer anmelden',
+                'GET /api/changes' => 'Sichtbare Aenderungen seit einem Cursor erkennen',
                 'GET /api/tasks' => 'Alle Aufgaben abrufen',
                 'GET /api/tasks/{id}' => 'Eine Aufgabe abrufen',
                 'POST /api/tasks' => 'Aufgabe erstellen',
