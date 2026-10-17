@@ -16,7 +16,8 @@ class Container {
     // Projektmitglieder sehen alle Container, Aufgaben bleiben separat gefiltert.
     public function getAll(int $userId, ?int $projectId = null): array {
         $stmt = $this->pdo->prepare(
-            'SELECT DISTINCT c.*, p.archived_at AS project_archived_at
+            'SELECT DISTINCT c.*, p.archived_at AS project_archived_at,
+                (' . AccessService::CONTAINER_MANAGE_SQL . ') AS can_manage
              FROM containers c
              JOIN projects p ON p.id = c.project_id
              ' . AccessService::ACTOR_JOIN . '
@@ -92,10 +93,16 @@ class Container {
                 $this->pdo->rollBack();
                 return false;
             }
-            $tasks = $this->pdo->prepare('SELECT 1 FROM tasks WHERE container_id = :id AND deleted_at IS NULL LIMIT 1');
+            $tasks = $this->pdo->prepare(
+                "SELECT 1 FROM tasks
+                 WHERE container_id = :id AND deleted_at IS NULL AND status <> 'done'
+                 LIMIT 1"
+            );
             $tasks->execute(['id' => $id]);
             if ($tasks->fetchColumn()) {
-                throw new \DomainException('Container enthaelt aktive Tasks');
+                throw new \DomainException(
+                    'Der Container enthält noch nicht erledigte Aufgaben und kann deshalb nicht gelöscht werden.'
+                );
             }
             $stmt = $this->pdo->prepare('UPDATE containers c JOIN projects p ON p.id = c.project_id
                 ' . AccessService::ACTOR_JOIN . '
