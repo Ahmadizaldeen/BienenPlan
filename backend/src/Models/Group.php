@@ -234,6 +234,39 @@ class Group
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function getMemberNamesByGroupIds(array $groupIds): array
+    {
+        $groupIds = array_values(array_unique(array_filter(
+            array_map('intval', $groupIds),
+            static fn(int $groupId): bool => $groupId > 0,
+        )));
+        if ($groupIds === []) {
+            return [];
+        }
+
+        $placeholders = [];
+        $parameters = [];
+        foreach ($groupIds as $index => $groupId) {
+            $placeholder = 'group_' . $index;
+            $placeholders[] = ':' . $placeholder;
+            $parameters[$placeholder] = $groupId;
+        }
+        $statement = $this->pdo->prepare(
+            'SELECT ug.groups_id, u.name
+             FROM users_groups ug
+             JOIN users u ON u.id = ug.user_id AND u.deleted_at IS NULL
+             WHERE ug.groups_id IN (' . implode(', ', $placeholders) . ')
+             ORDER BY u.name'
+        );
+        $statement->execute($parameters);
+
+        $members = array_fill_keys($groupIds, []);
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $member) {
+            $members[(int) $member['groups_id']][] = (string) $member['name'];
+        }
+        return $members;
+    }
+
     // Prüft, ob ein Name das für persönliche Gruppen reservierte Muster "Personal user ..." nutzt.
     public static function isReservedName(string $groupName): bool
     {

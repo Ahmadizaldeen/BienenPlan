@@ -26,6 +26,8 @@ use BienenPlan\Middleware\AuthMiddleware;
 use BienenPlan\Middleware\CorsMiddleware;
 use BienenPlan\Controllers\ApiController;
 use BienenPlan\Controllers\ChangeController;
+use BienenPlan\Controllers\ChatController;
+use BienenPlan\Services\OllamaService;
 use BienenPlan\Services\ChangeFeed;
 use BienenPlan\Error\BootstrapErrorHandler;
 use Slim\Exception\HttpNotFoundException;
@@ -41,7 +43,7 @@ try{
     $userModel = new User($pdo);
     $taskModel = new Task($pdo);
     $taskAttachmentModel = new TaskAttachment($pdo);
-    $subtaskController = new SubtaskController(new Subtask($pdo));
+    $subtaskModel = new Subtask($pdo);
     $groupModel = new Group($pdo);
     $projectModel = new Project($pdo);
     $containerModel = new Container($pdo);
@@ -58,6 +60,18 @@ try{
     $corsMiddleware = new CorsMiddleware();
     $apiController = new ApiController();
     $changeController = new ChangeController(new ChangeFeed($pdo, $_ENV['JWT_SECRET'] ?? ''));
+    $subtaskController = new SubtaskController($subtaskModel);
+    $chatController = new ChatController(
+        new OllamaService(
+            $_ENV['OLLAMA_BASE_URL'] ?? '',
+            $_ENV['OLLAMA_MODEL'] ?? '',
+        ),
+        $projectModel,
+        $taskModel,
+        $containerModel,
+        $groupModel,
+        $subtaskModel,
+    );
     $notFoundHandler = new NotFoundHandler();
 }
 catch (Throwable $e){
@@ -90,7 +104,7 @@ $app->get('/api', [$apiController, 'index']);
 $app->get('/', [$apiController, 'index']); # Setup Route
 // Geschützte Routen
 // Routen in der geschützten Gruppe registrieren
-$app->group('/api', function ($group) use ($taskController, $attachmentController, $subtaskController, $groupController, $projectController, $containerController, $authController, $userController, $changeController) {
+$app->group('/api', function ($group) use ($taskController, $attachmentController, $subtaskController, $groupController, $projectController, $containerController, $authController, $userController, $changeController, $chatController) {
     $group->get('/changes', [$changeController, 'poll']);
     $group->get('/me', [$authController, 'me']);
     $group->post('/me/picture', [$userController, 'uploadPicture']);
@@ -131,6 +145,7 @@ $app->group('/api', function ($group) use ($taskController, $attachmentControlle
     $group->get('/projects/archived', [$projectController, 'getArchived']);
     $group->post('/projects/{id}/restore', [$projectController, 'restore']);
     $group->get('/projects/{id}', [$projectController, 'getById']);
+    $group->post('/projects/{id}/chat', [$chatController, 'chat']);
     $group->get('/projects/{id}/groups', [$projectController, 'getGroups']);
     $group->post('/projects/{id}/groups', [$projectController, 'createGroup']);
     $group->post('/projects/{id}/groups/{groupId}', [$projectController, 'addGroup']);

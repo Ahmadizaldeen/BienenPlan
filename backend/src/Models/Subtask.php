@@ -22,6 +22,35 @@ class Subtask {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function byTasks(array $taskIds): array {
+        $taskIds = array_values(array_unique(array_filter(
+            array_map('intval', $taskIds),
+            static fn(int $taskId): bool => $taskId > 0,
+        )));
+        if ($taskIds === []) return [];
+
+        $placeholders = [];
+        $parameters = [];
+        foreach ($taskIds as $index => $taskId) {
+            $placeholder = 'task_' . $index;
+            $placeholders[] = ':' . $placeholder;
+            $parameters[$placeholder] = $taskId;
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT id, task_id, title, completed FROM subtasks
+             WHERE task_id IN (' . implode(', ', $placeholders) . ')
+               AND deleted_at IS NULL
+             ORDER BY task_id, id'
+        );
+        $stmt->execute($parameters);
+
+        $subtasks = array_fill_keys($taskIds, []);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $subtask) {
+            $subtasks[(int) $subtask['task_id']][] = $subtask;
+        }
+        return $subtasks;
+    }
+
     public function byId(int $taskId, int $id): ?array {
         // Both IDs are required so nested URLs cannot mutate another task's subtask.
         $stmt = $this->pdo->prepare('SELECT * FROM subtasks WHERE task_id = :task_id AND id = :id AND deleted_at IS NULL');

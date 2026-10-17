@@ -103,6 +103,10 @@ try {
     check($access->canViewTask(6, 1) && $access->canDeleteTask(6, 1), 'Admin has cross-project task access');
     check(count($tasks->getAllByUser(6)) === 3, 'Admin list includes legacy tasks without creator');
     check(count($projects->getAll(6)) === 2 && count($containers->getAll(6)) === 3, 'Admin sees all active projects and containers');
+    check((int) $containers->getAll(1, 1)[0]['can_manage'] === 1, 'Project owner can manage listed containers');
+    check((int) $containers->getAll(2, 1)[0]['can_manage'] === 1, 'Container owner can manage listed containers');
+    check((int) $containers->getAll(4, 1)[0]['can_manage'] === 0, 'Ordinary project member cannot manage listed containers');
+    check((int) $containers->getAll(6, 1)[0]['can_manage'] === 1, 'Admin can manage listed containers');
     check(!$access->canViewTask(2, 1) && $access->canDeleteTask(2, 1),
         'Project member cannot read an unassigned task but container owner may delete it');
     check($access->canViewTask(3, 1) && $access->canEditTask(3, 1), 'Task creator with project access edits own task');
@@ -239,11 +243,14 @@ try {
     check($subtaskController->update($member->withParsedBody(['title' => 'Own item']), new Response(), ['taskId' => '2', 'subtaskId' => '1'])->getStatusCode() === 200, 'Unchanged authorized subtask update succeeds');
     check($attachmentController->delete($request->withAttribute('user_id', 6), new Response(), ['id' => '2', 'attachmentId' => '1'])->getStatusCode() === 200, 'Admin deletes foreign attachment');
 
-    check($containerController->delete($request->withAttribute('user_id', 2), new Response(), ['id' => '1'])->getStatusCode() === 409, 'Active tasks block container removal');
+    $db->exec("INSERT INTO tasks (id, title, created_by, container_id, status)
+        VALUES (4, 'Completed task', 2, 2, 'done')");
+    check($containerController->delete($request->withAttribute('user_id', 2), new Response(), ['id' => '1'])->getStatusCode() === 409, 'Uncompleted tasks block container removal');
     check($containerController->delete($member, new Response(), ['id' => '2'])->getStatusCode() === 403, 'Member cannot delete container');
-    check($containerController->delete($request->withAttribute('user_id', 2), new Response(), ['id' => '2'])->getStatusCode() === 200, 'Owner soft deletes empty container');
+    check($containerController->delete($request->withAttribute('user_id', 2), new Response(), ['id' => '2'])->getStatusCode() === 200, 'Container owner can delete a container that contains only completed tasks');
     check((int) $db->query('SELECT deleted_by FROM containers WHERE id = 2')->fetchColumn() === 2, 'Soft deletion retains container and actor');
     check(!$access->canViewContainer(6, 2), 'Even admin cannot use deleted container through normal endpoint');
+    $db->exec('UPDATE tasks SET deleted_at = NOW() WHERE id = 4');
     $db->exec('UPDATE containers SET deleted_at = NULL WHERE id = 2');
     check($taskController->move($member->withParsedBody(['container_id' => 2]), new Response(), ['id' => '2'])->getStatusCode() === 403, 'Member cannot move task');
     check($taskController->move($request->withParsedBody(['container_id' => 3]), new Response(), ['id' => '2'])->getStatusCode() !== 200, 'Cross-project move denied');
